@@ -16,7 +16,7 @@ enum ScreenshotPreviewHoverTests {
     class State {
         var pointerInside = false
         var dismissWork: DispatchWorkItem?
-        var autoDismissDuration: TimeInterval = 12
+        var autoDismissDuration: TimeInterval? = 12
         var closed = false
         let model = Model()
         func close() { closed = true }
@@ -68,5 +68,13 @@ enum ScreenshotPreviewHoverTests {
             DispatchQueue.main.advance(0.5)
             suite.expect(floatingController.closed, "leaving the floating preview still dismisses it")
         }
+
+        DispatchQueue.main = NotchScreenRefreshContract.Scheduler()
+        let persistentController = Controller()
+        persistentController.autoDismissDuration = nil
+        persistentController.scheduleAutoDismiss()
+        DispatchQueue.main.advance(60)
+        suite.expect(!persistentController.closed && DispatchQueue.main.pending == 0,
+                     "a persistent confirmation preview does not schedule automatic dismissal")
     }
 }

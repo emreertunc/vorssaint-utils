@@ -63,6 +63,8 @@ enum NotchMusicVisibilityTests {
         var captureControlsWork: DispatchWorkItem?
         var captureControlsSubscription: Bool?
         var captureControlsCancel: (() -> Void)?
+        var captureClose: (() -> Void)?
+        var captureClosesOnCollapse = false
         var notice: NotchNotice?
         var noticeExpanded = false
         var noticeWork: DispatchWorkItem?
@@ -89,6 +91,10 @@ enum NotchMusicVisibilityTests {
         func removeCaptureControlsClickThrough() {}
         func refreshPresentation() {}
         func removeEventMonitors() {}
+        func clearCapture() {
+            captureClose = nil
+            captureClosesOnCollapse = false
+        }
         func mutatePresentation(transitionContent: NotchContentTransition, _ change: () -> Void) { change() }
     }
 

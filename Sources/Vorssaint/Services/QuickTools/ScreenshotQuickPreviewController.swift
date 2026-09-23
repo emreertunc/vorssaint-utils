@@ -42,11 +42,12 @@ final class ScreenshotQuickPreviewController {
     private var panel: ScreenshotQuickPreviewPanel?
     private var keyMonitor: Any?
     private var dismissWork: DispatchWorkItem?
-    private var autoDismissDuration: TimeInterval = 12
+    private let baseDismissDuration: TimeInterval?
+    private var autoDismissDuration: TimeInterval?
     private var closed = false
     private let presentationID = UUID()
     private var shownInNotch = false
-    private var didRunDefaultAction = false
+    private var didStartPreview = false
     private var pointerInside = false
 
     var protectedWindowIDs: Set<CGWindowID> {
@@ -57,6 +58,8 @@ final class ScreenshotQuickPreviewController {
     init(capture: ScreenshotSelectionController.Capture,
          strings: ScreenshotFeatureStrings,
          defaultAction: ScreenshotDefaultAction,
+         completedActions: Set<Action>,
+         dismissInterval: TimeInterval?,
          action: @escaping (Action) -> Set<Action>,
          share: @escaping (ScreenshotShareDuration,
                            @escaping (ScreenshotShareRecord?) -> Void) -> Void,
@@ -64,9 +67,12 @@ final class ScreenshotQuickPreviewController {
         self.capture = capture
         self.strings = strings
         self.defaultAction = defaultAction
+        self.baseDismissDuration = dismissInterval
+        self.autoDismissDuration = dismissInterval
         self.action = action
         self.share = share
         self.onClose = onClose
+        model.disabledActions = completedActions.intersection([.save, .copy])
     }
 
     func show(inNotch: Bool = true) {
@@ -89,10 +95,15 @@ final class ScreenshotQuickPreviewController {
             copySharedLink: { [weak self] in self?.copySharedLink() },
             deleteSharedLink: { [weak self] in self?.deleteSharedLink() },
             showQR: { [weak self] in self?.showQRResult() },
+            dismiss: { [weak self] in self?.close() },
             hoverChanged: { [weak self] inside in self?.hoverChanged(inside) },
+            showsDismissButton: baseDismissDuration == nil,
             embedded: wantsNotch)
         if wantsNotch, NotchService.shared.presentCapture(
             id: presentationID, content: AnyView(content), actions: AnyView(content.toolbar), height: Self.size(showingLink: model.sharedRecord != nil).height,
+            takeFocus: baseDismissDuration != nil
+                && UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus),
+            closeOnCollapse: baseDismissDuration == nil,
             fallback: { [weak self] in
                 guard let self else { return }
                 self.shownInNotch = false
@@ -133,19 +144,18 @@ final class ScreenshotQuickPreviewController {
         // On by default: leaving the keyboard behind after a capture is what
         // #1463 reported, since Command-C and Command-S did nothing until a
         // click. Taking it costs the caret in the app being typed into
-        // (#1089), so More options can hand that trade back to a click.
-        if UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus) {
+        // (#1089), so persistent previews always leave focus where it was;
+        // a click can still hand focus to the preview explicitly.
+        if baseDismissDuration != nil,
+           UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus) {
             panel.makeKey()
         }
-        // A performed action turns the preview into a short confirmation; a
-        // failed one keeps the full stay so the person can still act by hand.
         finishShowing()
     }
 
     private func finishShowing() {
-        if !didRunDefaultAction {
-            didRunDefaultAction = true
-            autoDismissDuration = runDefaultAction(defaultAction) ? 3 : 12
+        if !didStartPreview {
+            didStartPreview = true
             scanForQR()
         }
         scheduleAutoDismiss()
@@ -156,27 +166,6 @@ final class ScreenshotQuickPreviewController {
         dismissWork?.cancel()
         dismissWork = nil
         if !inside { scheduleAutoDismiss() }
-    }
-
-    /// Runs the Settings-configured action once, right after the preview
-    /// appears, and reports whether anything happened. Only the halves that
-    /// actually succeeded gray their buttons out, so a failed copy leaves
-    /// Copy available. Unlike `perform(_:)` this never closes the panel: it
-    /// stays up as confirmation, and the person can still edit or discard
-    /// from it. Edit never reaches here, the service routes it straight
-    /// into the editor without a preview.
-    private func runDefaultAction(_ defaultAction: ScreenshotDefaultAction) -> Bool {
-        let mapped: Action
-        switch defaultAction {
-        case .none, .edit: return false
-        case .save: mapped = .save
-        case .saveAndCopy: mapped = .saveAndCopy
-        case .copy: mapped = .copy
-        }
-        let performed = action(mapped)
-        guard !performed.isEmpty else { return false }
-        model.disabledActions = performed.intersection([.save, .copy])
-        return true
     }
 
     /// Scans the full resolution capture off the main thread and reveals the
@@ -277,7 +266,8 @@ final class ScreenshotQuickPreviewController {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
                 self.model.sharedRecord = record
             }
-            self.autoDismissDuration = 30
+            self.autoDismissDuration = ScreenshotSupport.sharedPreviewDismissInterval(
+                base: self.baseDismissDuration)
             self.resizePanel(showingLink: true)
             self.scheduleAutoDismiss()
         }
@@ -313,7 +303,7 @@ final class ScreenshotQuickPreviewController {
                     self.model.deletingShare = false
                 }
                 QuickToolHUD.show(icon: "link", message: self.strings.linkDeletedHUD)
-                self.autoDismissDuration = 12
+                self.autoDismissDuration = self.baseDismissDuration
                 self.resizePanel(showingLink: false)
             } catch {
                 guard !self.closed else { return }
@@ -367,11 +357,13 @@ final class ScreenshotQuickPreviewController {
     }
 
     private func scheduleAutoDismiss() {
-        guard !closed, !pointerInside, !model.sharing, !model.deletingShare else { return }
+        guard !closed, !pointerInside, !model.sharing, !model.deletingShare,
+              let dismissDuration = autoDismissDuration
+        else { return }
         dismissWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.close() }
         dismissWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + autoDismissDuration, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + dismissDuration, execute: work)
     }
 
     private func installKeyMonitor(for panel: NSPanel) {
@@ -447,7 +439,9 @@ private struct ScreenshotQuickPreviewView: View {
     let copySharedLink: () -> Void
     let deleteSharedLink: () -> Void
     let showQR: () -> Void
+    let dismiss: () -> Void
     let hoverChanged: (Bool) -> Void
+    let showsDismissButton: Bool
     var embedded = false
     var actionsOnly = false
     var toolbar: Self {
@@ -516,6 +510,21 @@ private struct ScreenshotQuickPreviewView: View {
         }
     }
 
+    private var thumbnailDismissButton: some View {
+        Button(action: dismiss) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        .screenshotSafeHelp("\(strings.done)  (⎋)")
+        .accessibilityLabel(strings.done)
+    }
+
     private var thumbnailPinButton: some View {
         Button {
             perform(.pin)
@@ -555,6 +564,9 @@ private struct ScreenshotQuickPreviewView: View {
             .onDrag(dragItem)
             .screenshotSafeHelp(strings.editButton)
             .accessibilityLabel(strings.editButton)
+            .overlay(alignment: .topLeading) {
+                if showsDismissButton { thumbnailDismissButton }
+            }
             .overlay(alignment: .topTrailing) {
                 // The floating action row already fills its fixed width in
                 // longer languages, so the pin rides on the thumbnail there

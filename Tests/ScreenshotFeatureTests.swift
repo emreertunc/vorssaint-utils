@@ -635,6 +635,42 @@ enum ScreenshotFeatureTests {
                 && ScreenshotDefaultAction(rawValue: "saveAndCopy") == .saveAndCopy
                 && ScreenshotDefaultAction(rawValue: "bogus") == nil,
                "after-capture actions decode from their stored raw values")
+        suite.expect(ScreenshotSupport.confirmationPreviewDurations.contains(1)
+                && ScreenshotSupport.confirmationPreviewDurations.contains(
+                    ScreenshotSupport.defaultConfirmationPreviewDuration)
+                && ScreenshotSupport.confirmationPreviewDurations.contains(0)
+                && ScreenshotSupport.sanitizedConfirmationPreviewDuration(2) == 2
+                && ScreenshotSupport.sanitizedConfirmationPreviewDuration(99) == 3
+                && ScreenshotSupport.confirmationPreviewDismissInterval(2) == 2
+                && ScreenshotSupport.confirmationPreviewDismissInterval(0) == nil
+                && ScreenshotSupport.sharedPreviewDismissInterval(base: 3) == 30
+                && ScreenshotSupport.sharedPreviewDismissInterval(base: nil) == nil,
+               "confirmation previews support short, default, persistent, and share-result dismissal behavior")
+        suite.expect(ScreenshotSupport.shouldShowQuickPreview(defaultAction: .none,
+                                                              saved: false,
+                                                              copied: false,
+                                                              confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                              saved: false,
+                                                              copied: true,
+                                                              confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                             saved: false,
+                                                             copied: false,
+                                                             confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .save,
+                                                              saved: true,
+                                                              copied: false,
+                                                              confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                             saved: true,
+                                                             copied: false,
+                                                             confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                              saved: true,
+                                                              copied: true,
+                                                              confirmationEnabled: false),
+               "automatic actions can suppress successful confirmations while failed or partial actions still expose recovery controls")
 
         // A gesture that ends with more than one release, like a drag made
         // with three fingers, delivers events after the capture is over.
@@ -889,8 +925,12 @@ enum ScreenshotFeatureTests {
         let orderFrontLine = presentLines.firstIndex { $0.contains("orderFrontRegardless()") } ?? -1
         let makeKeyLine = presentLines.firstIndex { $0.contains("makeKey") } ?? -1
         suite.expect(orderFrontLine >= 0 && makeKeyLine > orderFrontLine
+                && presentLines[makeKeyLine - 2].contains("baseDismissDuration != nil")
                 && presentLines[makeKeyLine - 1].contains("screenshotPreviewTakesFocus"),
-               "presenting the screenshot preview takes key focus only behind the preference, once the panel is on screen")
+               "only timed screenshot previews may take preferred key focus once the panel is on screen")
+        suite.expect(quickPreviewCode.contains("takeFocus: baseDismissDuration != nil")
+                && quickPreviewCode.contains("closeOnCollapse: baseDismissDuration == nil"),
+               "persistent island previews neither take focus automatically nor survive an island collapse")
         let makeKeyCount = quickPreviewCode.components(separatedBy: "makeKey").count - 1
         let panelMakeKeyCount = panelBody.components(separatedBy: "makeKey").count - 1
         suite.expect(makeKeyCount == panelMakeKeyCount + 1 && panelMakeKeyCount >= 1,
@@ -898,6 +938,27 @@ enum ScreenshotFeatureTests {
         suite.expect(panelBody.contains("sendEvent") && panelBody.contains("leftMouseDown")
                 && panelBody.contains("makeKey") && panelBody.contains("super.sendEvent"),
                "clicking the screenshot preview takes key focus and still delivers every preview button")
+
+        let actionBarBody = quickPreviewCode.components(separatedBy: "private var actionBar")
+            .dropFirst().first?.components(separatedBy: "private var preview").first ?? ""
+        let previewBody = quickPreviewCode.components(separatedBy: "private var preview")
+            .dropFirst().first?.components(separatedBy: "private func previewHoverChanged").first ?? ""
+        suite.expect(!actionBarBody.contains("showsDismissButton")
+                && previewBody.contains(".overlay(alignment: .topLeading)")
+                && previewBody.contains("if showsDismissButton { thumbnailDismissButton }")
+                && previewBody.contains(".overlay(alignment: .topTrailing)"),
+               "persistent close and floating pin controls occupy opposite thumbnail corners")
+
+        let notchSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Notch/NotchService.swift",
+            encoding: .utf8)) ?? ""
+        let collapseBody = notchSource.components(separatedBy: "func collapse()")
+            .dropFirst().first?.components(separatedBy: "func toggle()").first ?? ""
+        suite.expect(collapseBody.contains("if captureClosesOnCollapse")
+                && collapseBody.contains("closeCapture = captureClose")
+                && collapseBody.contains("clearCapture()")
+                && collapseBody.contains("closeCapture?()"),
+               "collapsing the island closes a persistent capture after detaching its stored presentation")
 
         // With the controls in Dynamic Island, the island's panel holds key
         // focus and the selection surface never becomes key on its own, so
@@ -2184,6 +2245,13 @@ enum ScreenshotFeatureTests {
                "screenshot preview placement preserves the existing automatic behavior by default")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotPreviewTakesFocus] as? Bool == true,
                "the screenshot preview takes the keyboard as it appears by default, so its shortcuts work at once; leaving it is the opt-out")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotPreviewEnabled] as? Bool == true
+                && Defaults.registeredDefaults[DefaultsKey.screenshotPreviewDuration] as? Int
+                    == ScreenshotSupport.defaultConfirmationPreviewDuration,
+               "automatic screenshot confirmations stay enabled at the existing three-second duration by default")
+        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotPreviewEnabled)
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotPreviewDuration),
+               "screenshot confirmation preferences are included in settings backups")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotSharingEnabled] as? Bool == true,
                "temporary screenshot links preserve their existing availability by default")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotToolOrder] as? String

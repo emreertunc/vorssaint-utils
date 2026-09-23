@@ -89,6 +89,7 @@ enum NotchPresentationRefreshContract {
         var captureFallback: (() -> Void)?
         var captureClose: (() -> Void)?
         var captureHover: ((Bool) -> Void)?
+        var captureClosesOnCollapse = false
         var pinned = false
         var showingSections = false
         var showingAppPanel = false
