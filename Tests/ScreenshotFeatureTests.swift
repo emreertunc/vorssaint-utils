@@ -156,6 +156,27 @@ enum ScreenshotFeatureTests {
             id: 1, ownerPID: 500, frame: CGRect(x: 100, y: 100, width: 800, height: 600))
         let sheet = CaptureWindow(
             id: 2, ownerPID: 500, frame: CGRect(x: 300, y: 100, width: 400, height: 300))
+        func attachedCoverage(windowAt origin: CGPoint) -> ScreenshotSupport.AlphaCoverage {
+            var alpha = [UInt8](repeating: 0, count: 40 * 20)
+            for row in Int(origin.y)..<Int(origin.y) + 6 {
+                for column in Int(origin.x)..<Int(origin.x) + 8 { alpha[row * 40 + column] = 255 }
+            }
+            return ScreenshotSupport.AlphaCoverage(alpha: alpha, width: 40, height: 20)
+        }
+        let placedWindow = CGRect(x: 20, y: 10, width: 8, height: 6)
+        let packedWindow = CGRect(x: 0, y: 0, width: 8, height: 6)
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: placedWindow, packed: packedWindow,
+            coverage: attachedCoverage(windowAt: CGPoint(x: 20, y: 10))) == placedWindow,
+               "a window drawn where it sits on the display is cropped there")
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: placedWindow, packed: packedWindow,
+            coverage: attachedCoverage(windowAt: .zero)) == packedWindow,
+               "windows packed into the corner of the capture are cropped whole, not as a slice")
+        suite.expect(ScreenshotSupport.attachedCaptureCrop(
+            placed: CGRect(x: 4, y: 2, width: 8, height: 6), packed: packedWindow,
+            coverage: attachedCoverage(windowAt: CGPoint(x: 4, y: 2))) == CGRect(x: 4, y: 2, width: 8, height: 6),
+               "an overlapping placement still follows where the window was drawn")
         suite.expect(ScreenshotCapturePolicy.attachedCapturePlan(
             target: capturedWindow, frontToBack: [sheet, capturedWindow])
             == ScreenshotCapturePolicy.AttachedCapturePlan(
@@ -646,10 +667,42 @@ enum ScreenshotFeatureTests {
                 && ScreenshotSupport.sharedPreviewDismissInterval(base: 3) == 30
                 && ScreenshotSupport.sharedPreviewDismissInterval(base: nil) == nil,
                "confirmation previews support short, default, persistent, and share-result dismissal behavior")
+        let focusedTimedPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, prefersFocus: true)
+        let quietTimedPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, prefersFocus: false)
+        let persistentPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: nil, prefersFocus: true)
+        suite.expect(focusedTimedPolicy.takesFocus && !focusedTimedPolicy.closesOnCollapse
+                && !focusedTimedPolicy.showsDismissButton
+                && !quietTimedPolicy.takesFocus && !quietTimedPolicy.closesOnCollapse
+                && !quietTimedPolicy.showsDismissButton
+                && !persistentPolicy.takesFocus && persistentPolicy.closesOnCollapse
+                && persistentPolicy.showsDismissButton,
+               "preview presentation keeps timed focus behavior while persistent confirmations stay dismissible without taking focus")
+        let focusDefaultsDomain = "com.vorssaint.tests.screenshot-preview-focus.\(UUID().uuidString)"
+        let focusDefaults = UserDefaults(suiteName: focusDefaultsDomain)!
+        defer { focusDefaults.removePersistentDomain(forName: focusDefaultsDomain) }
+        focusDefaults.set(true, forKey: DefaultsKey.screenshotPreviewTakesFocus)
+        let preferredFocusPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, defaults: focusDefaults)
+        focusDefaults.set(false, forKey: DefaultsKey.screenshotPreviewTakesFocus)
+        let retainedFocusPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: 3, defaults: focusDefaults)
+        suite.expect(preferredFocusPolicy.takesFocus && !retainedFocusPolicy.takesFocus,
+               "the screenshot preview focus preference controls timed confirmation focus")
         suite.expect(ScreenshotSupport.shouldShowQuickPreview(defaultAction: .none,
                                                               saved: false,
                                                               copied: false,
                                                               confirmationEnabled: false)
+                && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .edit,
+                                                              saved: false,
+                                                              copied: false,
+                                                              confirmationEnabled: true)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
+                                                             saved: false,
+                                                             copied: true,
+                                                             confirmationEnabled: true)
                 && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .copy,
                                                               saved: false,
                                                               copied: true,
@@ -666,11 +719,15 @@ enum ScreenshotFeatureTests {
                                                              saved: true,
                                                              copied: false,
                                                              confirmationEnabled: false)
+                && ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
+                                                             saved: true,
+                                                             copied: true,
+                                                             confirmationEnabled: true)
                 && !ScreenshotSupport.shouldShowQuickPreview(defaultAction: .saveAndCopy,
                                                               saved: true,
                                                               copied: true,
                                                               confirmationEnabled: false),
-               "automatic actions can suppress successful confirmations while failed or partial actions still expose recovery controls")
+               "automatic actions honor confirmation preferences while failed or partial actions still expose recovery controls")
 
         // A gesture that ends with more than one release, like a drag made
         // with three fingers, delivers events after the capture is over.
@@ -919,18 +976,14 @@ enum ScreenshotFeatureTests {
         let panelBody = quickPreviewCode.components(separatedBy: "class ScreenshotQuickPreviewPanel")
             .dropFirst().first?.components(separatedBy: "\n}").first ?? ""
         // The preference keys the panel only after it is on screen, and the
-        // line above the call is the preference check itself, so dropping the
-        // guard or keying before ordering front both go red.
+        // policy guard must stay immediately above the hand-off so an
+        // unconditional makeKey cannot slip past the behavior checks.
         let presentLines = presentBody.components(separatedBy: "\n")
         let orderFrontLine = presentLines.firstIndex { $0.contains("orderFrontRegardless()") } ?? -1
         let makeKeyLine = presentLines.firstIndex { $0.contains("makeKey") } ?? -1
         suite.expect(orderFrontLine >= 0 && makeKeyLine > orderFrontLine
-                && presentLines[makeKeyLine - 2].contains("baseDismissDuration != nil")
-                && presentLines[makeKeyLine - 1].contains("screenshotPreviewTakesFocus"),
-               "only timed screenshot previews may take preferred key focus once the panel is on screen")
-        suite.expect(quickPreviewCode.contains("takeFocus: baseDismissDuration != nil")
-                && quickPreviewCode.contains("closeOnCollapse: baseDismissDuration == nil"),
-               "persistent island previews neither take focus automatically nor survive an island collapse")
+                && presentLines[makeKeyLine - 1].contains("takesFocus"),
+               "the screenshot preview takes key focus only behind the presentation policy, once the panel is on screen")
         let makeKeyCount = quickPreviewCode.components(separatedBy: "makeKey").count - 1
         let panelMakeKeyCount = panelBody.components(separatedBy: "makeKey").count - 1
         suite.expect(makeKeyCount == panelMakeKeyCount + 1 && panelMakeKeyCount >= 1,
@@ -938,27 +991,6 @@ enum ScreenshotFeatureTests {
         suite.expect(panelBody.contains("sendEvent") && panelBody.contains("leftMouseDown")
                 && panelBody.contains("makeKey") && panelBody.contains("super.sendEvent"),
                "clicking the screenshot preview takes key focus and still delivers every preview button")
-
-        let actionBarBody = quickPreviewCode.components(separatedBy: "private var actionBar")
-            .dropFirst().first?.components(separatedBy: "private var preview").first ?? ""
-        let previewBody = quickPreviewCode.components(separatedBy: "private var preview")
-            .dropFirst().first?.components(separatedBy: "private func previewHoverChanged").first ?? ""
-        suite.expect(!actionBarBody.contains("showsDismissButton")
-                && previewBody.contains(".overlay(alignment: .topLeading)")
-                && previewBody.contains("if showsDismissButton { thumbnailDismissButton }")
-                && previewBody.contains(".overlay(alignment: .topTrailing)"),
-               "persistent close and floating pin controls occupy opposite thumbnail corners")
-
-        let notchSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/Notch/NotchService.swift",
-            encoding: .utf8)) ?? ""
-        let collapseBody = notchSource.components(separatedBy: "func collapse()")
-            .dropFirst().first?.components(separatedBy: "func toggle()").first ?? ""
-        suite.expect(collapseBody.contains("if captureClosesOnCollapse")
-                && collapseBody.contains("closeCapture = captureClose")
-                && collapseBody.contains("clearCapture()")
-                && collapseBody.contains("closeCapture?()"),
-               "collapsing the island closes a persistent capture after detaching its stored presentation")
 
         // With the controls in Dynamic Island, the island's panel holds key
         // focus and the selection surface never becomes key on its own, so
@@ -1394,7 +1426,7 @@ enum ScreenshotFeatureTests {
                                                       stroke: .large,
                                                       arrowStyle: style)],
                         in: context,
-                        pixelated: nil,
+                        pixelated: [:],
                         imageSize: CGSize(width: width, height: height),
                         scale: 2,
                         annotationShadowsEnabled: true)
@@ -1430,11 +1462,110 @@ enum ScreenshotFeatureTests {
         suite.expect(stickerStyle == ScreenshotSupport.SelectionStyle(color: nil,
                                                                 stroke: nil,
                                                                 arrowStyle: nil)
-                && pixelateStyle == stickerStyle
+                && pixelateStyle == ScreenshotSupport.SelectionStyle(
+                    color: nil, stroke: nil, arrowStyle: nil,
+                    blurLevel: ScreenshotSupport.BlurStrength.defaultLevel)
                 && highlightStyle.color == .some(.yellow)
                 && highlightStyle.stroke == nil
                 && highlightStyle.arrowStyle == nil,
                "selection sync leaves unused sticker and pixelation controls alone")
+        let Strength = ScreenshotSupport.BlurStrength.self
+        let capture = CGSize(width: 1920, height: 1080)
+        suite.expect(ScreenshotSupport.pixelBlockSize(for: capture)
+                    == ScreenshotSupport.pixelBlockSize(for: capture, level: Strength.defaultLevel)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 1)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 2)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 2)
+                    < ScreenshotSupport.pixelBlockSize(for: capture)
+                && ScreenshotSupport.pixelBlockSize(for: capture)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 4)
+                && ScreenshotSupport.pixelBlockSize(for: capture, level: 4)
+                    < ScreenshotSupport.pixelBlockSize(for: capture, level: 5),
+               "each blur level coarsens the mosaic, and the middle keeps the old strength")
+        suite.expect(Strength.sanitized(0) == 1 && Strength.sanitized(9) == 5
+                && Strength.blockFactor(for: Strength.defaultLevel) == 1
+                && ScreenshotSupport.pixelBlockSize(for: CGSize(width: 40, height: 40), level: 1) >= 2,
+               "blur levels stay in range and never shrink the mosaic to nothing")
+        suite.expect([0, 1, 2, 3].allSatisfy { Strength.startingLevel(remembered: $0) == Strength.defaultLevel }
+                && Strength.startingLevel(remembered: 4) == 4 && Strength.startingLevel(remembered: 5) == 5
+                && Strength.startingLevel(remembered: 9) == 5,
+               "a new capture never starts pixelating at a light level that can leave text readable")
+        var lightArea = ScreenshotSupport.Annotation(tool: .pixelate)
+        lightArea.blurLevel = 1
+        var strongArea = ScreenshotSupport.Annotation(tool: .pixelate)
+        strongArea.blurLevel = 5
+        var outlinedArea = ScreenshotSupport.Annotation(tool: .rect)
+        outlinedArea.blurLevel = 4
+        suite.expect(ScreenshotSupport.mosaicLevels(for: [lightArea, strongArea, strongArea, outlinedArea]) == [1, 5]
+                && ScreenshotSupport.mosaicLevels(for: [outlinedArea]).isEmpty,
+               "the editor keeps a capture-sized mosaic only for the levels its pixelate areas use")
+        func filled(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> CGImage? {
+            let context = CGContext(data: nil, width: 20, height: 10, bitsPerComponent: 8,
+                                    bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+            context?.fill(CGRect(x: 0, y: 0, width: 20, height: 10))
+            return context?.makeImage()
+        }
+        if let base = filled(0.5, 0.5, 0.5), let light = filled(1, 0, 0), let heavy = filled(0, 0, 1) {
+            let marks = [
+                ScreenshotSupport.Annotation(tool: .pixelate,
+                                             rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                             blurLevel: 1),
+                ScreenshotSupport.Annotation(tool: .pixelate,
+                                             rect: CGRect(x: 10, y: 0, width: 10, height: 10),
+                                             blurLevel: 5),
+            ]
+            let export = ScreenshotRenderer.renderExport(
+                baseImage: base, annotations: marks, pixelated: [1: light, 5: heavy], scale: 1,
+                annotationShadowsEnabled: false, watermark: ScreenshotSupport.WatermarkStyle(),
+                watermarkImage: nil, style: ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0),
+                fill: .none, downscaleTo1x: false)
+            var pixels = [UInt8](repeating: 0, count: 20 * 10 * 4)
+            let read = export.map { export -> Bool in
+                pixels.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data: buffer.baseAddress, width: 20, height: 10,
+                                            bitsPerComponent: 8, bytesPerRow: 80,
+                                            space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                    context?.draw(export.image, in: CGRect(x: 0, y: 0, width: 20, height: 10))
+                    return context != nil
+                }
+            } ?? false
+            let left = Array(pixels[(5 * 20 + 3) * 4..<(5 * 20 + 3) * 4 + 3])
+            let right = Array(pixels[(5 * 20 + 16) * 4..<(5 * 20 + 16) * 4 + 3])
+            suite.expect(read && left[0] > 200 && left[2] < 50 && right[2] > 200 && right[0] < 50,
+                   "an export with mixed blur levels draws each area from its own mosaic")
+        }
+        let bigText = ScreenshotSupport.Annotation(tool: .text, stroke: .small, textSize: 48)
+        suite.expect(ScreenshotSupport.selectionStyle(for: bigText)
+                == ScreenshotSupport.SelectionStyle(color: .red, stroke: nil,
+                                                    arrowStyle: nil, textSize: 48)
+                && ScreenshotSupport.selectionStyle(for: thinArrow).textSize == nil,
+               "text exposes its own point size, not the shape thickness")
+        suite.expect(ScreenshotRenderer.fontSize(for: 48, scale: 2) == 96
+                && ScreenshotRenderer.textBounds("Hi", at: .zero, textSize: 48, scale: 1).height
+                    > ScreenshotRenderer.textBounds("Hi", at: .zero, textSize: 12, scale: 1).height,
+               "text size alone drives the rendered font")
+        suite.expect(ScreenshotSupport.sanitizedTextSize(0) == ScreenshotSupport.defaultTextSize
+                && ScreenshotSupport.sanitizedTextSize(2) == ScreenshotSupport.textSizes.first
+                && ScreenshotSupport.sanitizedTextSize(500) == ScreenshotSupport.textSizes.last
+                && ScreenshotSupport.sanitizedTextSize(19) == 19,
+               "a stored text size stays inside the offered range")
+        suite.expect(ScreenshotSupport.steppedTextSize(from: 19, up: true) == 24
+                && ScreenshotSupport.steppedTextSize(from: 19, up: false) == 16
+                && ScreenshotSupport.steppedTextSize(from: 20, up: false) == 19
+                && ScreenshotSupport.steppedTextSize(from: 96, up: true) == nil
+                && ScreenshotSupport.steppedTextSize(from: 10, up: false) == nil,
+               "the size buttons step through the presets and stop at the ends")
+        suite.expect(screenshotEditorSource.contains("let strokeChanged = usesStroke && annotations[index].stroke != stroke")
+                && screenshotEditorSource.contains("if usesStroke { annotations[index].stroke = stroke }"),
+               "picking text or a highlight never records a thickness edit it has no control for")
+        let screenshotEditorViewSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/UI/Screenshot/ScreenshotEditorView.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(screenshotEditorViewSource.contains("isHovered || isActive ? 0.9 : 0.55"),
+               "tool shortcut labels stay visible on idle rail buttons")
         suite.expect(screenshotEditorSource.contains("syncControls(to: hit)"),
                "the editor synchronizes controls from the selected annotation")
         let existingSelectionSource: String
@@ -1496,7 +1627,7 @@ enum ScreenshotFeatureTests {
         if let retinaCapture {
             let plain = ScreenshotSupport.BackdropStyle(kind: .none, cornerRadius: 0)
             let full = ScreenshotRenderer.renderExport(baseImage: retinaCapture, annotations: [],
-                                                       pixelated: nil, scale: 2,
+                                                       pixelated: [:], scale: 2,
                                                        annotationShadowsEnabled: false,
                                                        watermark: ScreenshotSupport.WatermarkStyle(),
                                                        watermarkImage: nil,
@@ -1505,7 +1636,7 @@ enum ScreenshotFeatureTests {
             suite.expect(full?.scale == 2 && full?.image.width == 8,
                    "a Retina export keeps its pixels and its density")
             let halved = ScreenshotRenderer.renderExport(baseImage: retinaCapture, annotations: [],
-                                                         pixelated: nil, scale: 2,
+                                                         pixelated: [:], scale: 2,
                                                          annotationShadowsEnabled: false,
                                                          watermark: ScreenshotSupport.WatermarkStyle(),
                                                          watermarkImage: nil,
@@ -1726,7 +1857,7 @@ enum ScreenshotFeatureTests {
         }
         func markedExport(_ watermark: ScreenshotSupport.WatermarkStyle,
                           picture: CGImage?, base: CGImage) -> [UInt8]? {
-            ScreenshotRenderer.renderExport(baseImage: base, annotations: [], pixelated: nil,
+            ScreenshotRenderer.renderExport(baseImage: base, annotations: [], pixelated: [:],
                                             scale: 1, annotationShadowsEnabled: false,
                                             watermark: watermark, watermarkImage: picture,
                                             style: ScreenshotSupport.BackdropStyle(kind: .none,
@@ -2257,6 +2388,12 @@ enum ScreenshotFeatureTests {
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotToolOrder] as? String
                 == ScreenshotSupport.Tool.defaultOrderStorage,
                "the screenshot rail ships in its useful numbered order")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastBlurLevel] as? Int
+                == ScreenshotSupport.BlurStrength.defaultLevel,
+               "the pixelate tool starts at the strength it always had")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastTextSize] as? Int
+                == ScreenshotSupport.defaultTextSize,
+               "text starts at the size the medium thickness used to give it")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastSticker] as? String == "check",
                "the sticker tool starts with a safe built-in choice")
         suite.expect(Defaults.registeredDefaults[DefaultsKey.screenshotLastArrowStyle] as? String == "filled",

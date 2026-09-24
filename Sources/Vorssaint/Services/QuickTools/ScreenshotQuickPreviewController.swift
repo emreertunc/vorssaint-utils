@@ -16,8 +16,8 @@ final class ScreenshotQuickPreviewModel: ObservableObject {
     @Published var deletingShare = false
 }
 
-/// A transient in-memory capture preview. It stays outside Command Tab and
-/// performs no file write until the user explicitly chooses Save or Copy.
+/// A transient capture preview that stays outside Command Tab and reflects
+/// automatic Save or Copy work that may already have completed.
 final class ScreenshotQuickPreviewController {
     enum Action {
         case edit
@@ -79,6 +79,9 @@ final class ScreenshotQuickPreviewController {
         guard panel == nil, !shownInNotch, !closed else { return }
         let wantsNotch = inNotch && NotchSupport.routes(.capture)
             && NotchService.shared.acceptsSystemFeedback
+        let presentationPolicy = ScreenshotSupport.confirmationPreviewPresentationPolicy(
+            dismissInterval: baseDismissDuration,
+            defaults: .standard)
         let content = ScreenshotQuickPreviewView(
             image: Self.thumbnail(for: capture.image),
             strings: strings,
@@ -97,13 +100,12 @@ final class ScreenshotQuickPreviewController {
             showQR: { [weak self] in self?.showQRResult() },
             dismiss: { [weak self] in self?.close() },
             hoverChanged: { [weak self] inside in self?.hoverChanged(inside) },
-            showsDismissButton: baseDismissDuration == nil,
+            showsDismissButton: presentationPolicy.showsDismissButton,
             embedded: wantsNotch)
         if wantsNotch, NotchService.shared.presentCapture(
             id: presentationID, content: AnyView(content), actions: AnyView(content.toolbar), height: Self.size(showingLink: model.sharedRecord != nil).height,
-            takeFocus: baseDismissDuration != nil
-                && UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus),
-            closeOnCollapse: baseDismissDuration == nil,
+            takeFocus: presentationPolicy.takesFocus,
+            closeOnCollapse: presentationPolicy.closesOnCollapse,
             fallback: { [weak self] in
                 guard let self else { return }
                 self.shownInNotch = false
@@ -146,8 +148,7 @@ final class ScreenshotQuickPreviewController {
         // click. Taking it costs the caret in the app being typed into
         // (#1089), so persistent previews always leave focus where it was;
         // a click can still hand focus to the preview explicitly.
-        if baseDismissDuration != nil,
-           UserDefaults.standard.bool(forKey: DefaultsKey.screenshotPreviewTakesFocus) {
+        if presentationPolicy.takesFocus {
             panel.makeKey()
         }
         finishShowing()
@@ -374,6 +375,16 @@ final class ScreenshotQuickPreviewController {
                   !ShortcutCapture.isCapturing else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let key = Int(event.keyCode)
+            if flags.intersection([.command, .option, .shift, .control]) == .command {
+                let text = event.charactersIgnoringModifiers?.folding(
+                    options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+                let letter = text?.count == 1 ? text?.first : nil
+                let isLatinLetter = letter.map { $0.isASCII && $0.isLetter } ?? false
+                if isLatinLetter ? letter == "w" : key == kVK_ANSI_W {
+                    self.close()
+                    return nil
+                }
+            }
             if flags.contains(.command) {
                 switch key {
                 case kVK_ANSI_C:

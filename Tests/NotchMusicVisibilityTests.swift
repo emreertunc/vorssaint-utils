@@ -115,6 +115,25 @@ enum NotchMusicVisibilityTests {
         let reader = NotchMusicService.shared
         service.modules = NotchSupport.modules(in: defaults)
 
+        let persistentCapture = Service()
+        var persistentCloseCount = 0
+        persistentCapture.expanded = true
+        persistentCapture.captureClose = { persistentCloseCount += 1 }
+        persistentCapture.captureClosesOnCollapse = true
+        persistentCapture.collapse()
+        persistentCapture.collapse()
+        suite.expect(persistentCloseCount == 1 && persistentCapture.captureClose == nil
+                     && !persistentCapture.captureClosesOnCollapse,
+                     "collapsing a persistent capture closes and detaches it exactly once")
+
+        let timedCapture = Service()
+        var timedCloseCount = 0
+        timedCapture.expanded = true
+        timedCapture.captureClose = { timedCloseCount += 1 }
+        timedCapture.collapse()
+        suite.expect(timedCloseCount == 0 && timedCapture.captureClose != nil,
+                     "collapsing a timed capture leaves its timer-owned close path intact")
+
         for physical in [true, false] {
             service.geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1470, height: 956),
                                             safeAreaTop: physical ? 32 : 0, cameraWidth: physical ? 180 : 0,

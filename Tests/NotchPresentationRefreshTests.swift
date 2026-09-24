@@ -11,7 +11,9 @@ enum NotchPresentationRefreshContract {
     typealias DispatchQueue = NotchScreenRefreshContract.DispatchQueue
     enum NSEvent { static var mouseLocation = CGPoint.zero }
     enum NotchPanel { static let normalLevel = 0 }
-    final class CaptureOptions {
+    final class CaptureOptions: ObservableObject {
+        enum Tool { case screenshot, text }
+        @Published var selectedTool: Tool = .screenshot
         var hasFocusedControl = false
         var onSelectionProgressChange: ((Bool) -> Void)?
     }
@@ -105,7 +107,9 @@ enum NotchPresentationRefreshContract {
         var captureControlsSubscription: AnyCancellable?
         var captureControlsCancel: (() -> Void)?
         var monitorRemovals = 0
+        func installCaptureControlsClickThrough() {}
         func removeCaptureControlsClickThrough() { monitorRemovals += 1 }
+        func removeEventMonitors() {}
         func syncVisibleConsumers() {}
         var hoverWork: DispatchWorkItem?
         var hoverState = NotchHoverState()
