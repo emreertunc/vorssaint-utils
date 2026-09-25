@@ -556,18 +556,22 @@ enum SwitcherModelFeatureTests {
                                                               windowSpaces: []),
                "App Switcher keeps only hidden-app surfaces assigned to a real desktop")
 
-        // MARK: Hidden apps follow the minimized-windows placement (issue #1512)
-        suite.expect(hiddenAppWindow.isMinimizedOrAppHidden
-               && SwitcherItem.appOnly(appName: "Primary", pid: 101,
-                                       isAppHidden: true).isMinimizedOrAppHidden
-               && embeddedWindow.withMinimized(true).isMinimizedOrAppHidden
-               && !embeddedWindow.isMinimizedOrAppHidden,
-               "the minimized-windows placement sets aside an app hidden with Cmd+H exactly as it does a minimized window")
+        // MARK: Hidden apps only follow minimized-window placement by choice
+        let hiddenAppEntry = SwitcherItem.appOnly(appName: "Primary", pid: 101,
+                                                 isAppHidden: true)
+        suite.expect(!hiddenAppWindow.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: false)
+               && !hiddenAppEntry.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: false)
+               && hiddenAppWindow.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: true)
+               && hiddenAppEntry.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: true)
+               && embeddedWindow.withMinimized(true).isMinimizedForPlacement(treatHiddenAppsLikeMinimized: false)
+               && !embeddedWindow.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: true),
+               "hidden apps follow minimized-window placement only when selected, while actual minimized windows always follow it")
         let placementCode = (try? String(
             contentsOfFile: "Sources/Vorssaint/Services/Switcher/WindowEnumerator.swift",
             encoding: .utf8)) ?? ""
-        suite.expect(placementCode.contains(".isMinimizedOrAppHidden"),
-               "window enumeration decides the minimized-windows placement through the shared predicate")
+        suite.expect(placementCode.contains("forKey: DefaultsKey.switcherTreatHiddenAppsLikeMinimized")
+               && placementCode.contains("item.isMinimizedForPlacement(treatHiddenAppsLikeMinimized: treatHiddenAppsLikeMinimized)"),
+               "window enumeration applies the saved hidden-app choice through the placement predicate")
 
         // Real parked windows remain ordered in; a dismissed surface can
         // retain the same desktop assignment but is explicitly ordered out.
@@ -885,6 +889,9 @@ enum SwitcherModelFeatureTests {
                == WindowSwitchMinimizedPlacement.normal.rawValue
                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherMinimizedPlacement),
                "App Switcher leaves minimized windows in normal order by default and carries the choice in backups")
+        suite.expect(registeredDefaults[DefaultsKey.switcherTreatHiddenAppsLikeMinimized] as? Bool == true
+               && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherTreatHiddenAppsLikeMinimized),
+               "hidden apps follow the minimized-window placement by default and the opt-out travels with settings backups")
         suite.expect(registeredDefaults[DefaultsKey.switcherShowFullscreenWindows] as? Bool == true
                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherShowFullscreenWindows),
                "App Switcher keeps fullscreen windows visible by default and carries the choice in backups")
@@ -2065,6 +2072,13 @@ enum SwitcherModelFeatureTests {
             islandDefaults.set(true, forKey: DefaultsKey.notchHidesMenuBarIcon)
             suite.expect(MenuBarSpacingSupport.islandHidesStatusIcon(in: islandDefaults),
                    "a running island takes the icon's place when asked")
+            islandDefaults.set(true, forKey: DefaultsKey.notchHideInFullscreen)
+            suite.expect(!MenuBarSpacingSupport.islandHidesStatusIcon(
+                in: islandDefaults, hiddenInFullscreen: true),
+                   "the menu bar icon returns while the island is hidden in fullscreen")
+            suite.expect(MenuBarSpacingSupport.islandHidesStatusIcon(
+                in: islandDefaults, hiddenInFullscreen: false),
+                   "the saved icon preference resumes when the island leaves fullscreen")
             islandDefaults.set(false, forKey: DefaultsKey.notchEnabled)
             suite.expect(!MenuBarSpacingSupport.islandHidesStatusIcon(in: islandDefaults),
                    "switching the island off brings the icon back")
@@ -2993,6 +3007,13 @@ enum SwitcherModelFeatureTests {
             suite.expect(upgradedSwitcherSize == "large"
                     && previewSizeDefaults.string(forKey: DefaultsKey.switcherPreviewSize) == "small",
                    "an upgrade keeps the switcher at the preview size it shared with Dock Preview, once")
+            previewSizeDefaults.removePersistentDomain(forName: previewSizeSuite)
+            Defaults.migrateSwitcherPreviewSize(in: previewSizeDefaults)
+            previewSizeDefaults.set("large", forKey: DefaultsKey.previewSize)
+            Defaults.migrateSwitcherPreviewSize(in: previewSizeDefaults)
+            let switcherSize = previewSizeDefaults.string(forKey: DefaultsKey.switcherPreviewSize) ?? "normal"
+            suite.expect(switcherSize == "normal",
+                   "a Dock Preview size chosen after the first launch leaves the switcher at its default size")
             previewSizeDefaults.removePersistentDomain(forName: previewSizeSuite)
         }
         let defaultSwitcherHints = SwitcherSupport.shortcutHints(for: .switcherDefault,
