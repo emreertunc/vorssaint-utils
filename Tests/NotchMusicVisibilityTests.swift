@@ -84,6 +84,7 @@ enum NotchMusicVisibilityTests {
         var highlightedSection: NotchModule?
         var sectionRow = 0
         var hoverState = NotchHoverState()
+        var hoverEmphasized = false
         var hoverWork: DispatchWorkItem?
         var windowHost: Host?
         var panel: Panel? = Panel()
@@ -114,6 +115,7 @@ enum NotchMusicVisibilityTests {
         for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
         for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
         defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(false, forKey: DefaultsKey.notchTrackChange)
         let service = Service()
         let reader = NotchMusicService.shared
         service.modules = NotchSupport.modules(in: defaults)

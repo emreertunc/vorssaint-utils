@@ -79,6 +79,20 @@ enum NotchModule: String, CaseIterable, Identifiable {
     }
 }
 
+/// ⌘1 to ⌘9 on the island's clipboard page paste the entry at that place in
+/// the visible list, as in the quick panel.
+struct NotchClipboardPastePress: Equatable {
+    let serial: Int
+    let index: Int
+
+    /// The digit row by physical key, so every layout keeps the shortcut.
+    static func index(keyCode: UInt16, commandOnly: Bool) -> Int? {
+        guard commandOnly else { return nil }
+        let digitKeys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
+        return digitKeys.firstIndex(of: keyCode)
+    }
+}
+
 enum NotchDisplay: String, CaseIterable {
     case automatic, builtIn, main
 }
@@ -325,6 +339,16 @@ struct NotchHoverState {
     mutating func open() { suppressed = false }
     mutating func update(pointerInside: Bool) {
         if !pointerInside { suppressed = false }
+    }
+}
+
+enum NotchHoverEmphasis {
+    static func size(from resting: CGSize, geometry: NotchGeometry) -> CGSize {
+        // Keep the pulse inside the measured free menu-bar space on each side.
+        let occupiedWing = max(0, (resting.width - geometry.cameraWidth) / 2)
+        let freeSide = max(0, (geometry.compactSideRoom ?? 0) - occupiedWing)
+        let growth = min(10, freeSide)
+        return CGSize(width: resting.width + growth * 2, height: resting.height + 5)
     }
 }
 

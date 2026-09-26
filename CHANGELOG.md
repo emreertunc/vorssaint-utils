@@ -7,10 +7,49 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Summary
-Dynamic Island's closed timer takes less space beside music and other activity.
+Dynamic Island responds to hover and uses supported playback commands for radio streams.
+
+### Added
+- Clipboard History's separate window resizes by dragging an edge or corner, and remembers the chosen size. Thanks to @1119350264.
+- External monitors with readable brightness control offer optional Extra dimming. The lower part of the slider dims the picture below the monitor's hardware minimum, while the rest keeps using hardware brightness.
 
 ### Changed
+- The closed Dynamic Island gently grows on hover before a click or a configured hover opening, while respecting Reduce Motion and available menu bar space.
+- App Switcher can skip highlight, scrolling and panel resize animations while browsing, with smooth selection still the default.
+- App shortcuts now allow up to 64 bindings, enough for every letter and other commands.
+- The mouse extra-click filter shows its window directly in Settings and can be tuned in 1 ms steps.
+
+### Fixed
+- Dynamic Island sends a player's supported Play or Pause command when available, improving control of radio streams.
+- Clipboard History no longer refreshes the whole list when the pointer moves between entries, including with the preview closed.
+
+### Contributors
+Thanks to @stephansann for the report.
+Thanks to @Samuel61904 for the suggestion.
+Thanks to @stephansann.
+
+## [3.4.0-beta.6] - 2026-09-25
+
+### Summary
+Settings is easier to navigate and highlights linked sections together. New Dynamic Island setups start compact with their sections turned on, and the island adds an optional outline, animated compact music and better play/pause for video players. Features installed from the Features hub now start working right away.
+
+### Added
+- Dynamic Island can show an optional outline, white at rest and orange around a compact timer, including in the layout preview.
+
+### Changed
+- A new Dynamic Island setup starts compact, opens by click, keeps the app panel in its own window and installs its extensions, with lyrics, queue, notifications, agents, downloads and activity indicators turned on. Islands already set up keep their current behavior.
+- Installing a feature from its Features hub row, a preset or the first-run picker turns on its main behavior unless an earlier choice was saved, so tools such as Quit on Close work right away. Install all only makes features available.
 - The compact timer strip fits its wings to the reading and companion, places their content at the island's ends, and resizes when the reading or working agents change.
+- Settings groups the sidebar into sections, opens tool options in focused pages, and makes the Features catalog and navigation easier to use. Linked settings receive one outline around the whole section, and display brightness shortcuts show an icon.
+- Compact music stays visible while the island retracts, fades into another activity, and yields to new playback. Reduce Motion skips the animation.
+
+### Fixed
+- Dynamic Island play/pause works with the active video player even when its media session has no item identifier.
+- Homebrew search results offer a direct install button in Dynamic Island and the menu panel, and reflect the installed state after a package changes.
+- Clipboard History keeps recording after the macOS pasteboard service restarts, instead of silently stopping until Vorssaint is relaunched.
+
+### Contributors
+Thanks to @npcmail010 and @zorahrel.
 
 ## [3.4.0-beta.5] - 2026-09-25
 

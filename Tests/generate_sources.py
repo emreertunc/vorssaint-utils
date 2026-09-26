@@ -352,15 +352,18 @@ def main():
     # Only the clock changes, so tests drive the wait for a chosen source's track.
     write("NotchPlaybackRouting.swift", "import Foundation\nimport ObjectiveC\nextension NotchPlaybackRoutingContract {\n"
           + declaration(playback_adapter, "    private struct Identity:").replace("private struct", "struct", 1)
+          + declaration(playback_adapter, "    private static func playPauseCommand(")
           + declaration(playback_adapter, "    static var target:")
           + declaration(playback_adapter, "    static var sourceReply:")
           + declaration(playback_adapter, "    static func choose(")
           + declaration(playback_adapter, "    static func select()")
             .replace("ProcessInfo.processInfo.systemUptime", "uptime")
           + declaration(playback_adapter, "    static func publish(").replace("    static func", "    @discardableResult\n    static func", 1)
+          + declaration(playback_adapter, "    static func updatePlayPauseCommand(")
           + declaration(playback_adapter, "    static func validatedTarget(")
           + declaration(playback_adapter, "    static func readInfo(")
           + declaration(playback_adapter, "    static func supportedCommands(")
+          + declaration(playback_adapter, "    private static func currentPlayerPID(").replace("private static", "static", 1)
           + declaration(playback_adapter, "    static func send(")
           + declaration(playback_adapter, "    private static func makeTarget(").replace("private static", "static", 1)
           + declaration(adapter_entry, "private func sendPlaybackCommand(").replace("private func", "static func", 1)
@@ -511,7 +514,7 @@ def main():
           + "".join(declaration(notch, prefix).replace("    private ", "    ", 1) for prefix in [
               "    private func handleScroll(", "    private func handleSectionScroll("])
           + "}\n}\n")
-    write("NotchPresentationRefresh.swift", "import Foundation\nimport Combine\n"
+    write("NotchPresentationRefresh.swift", "import AppKit\nimport Foundation\nimport Combine\n"
           + "extension NotchPresentationRefreshContract {\nfinal class Service: State {\n"
           + "func hover(_ entered: Bool) {\nlet wasInside = inside\n"
           + "inside = windowHost?.containsHover(NSEvent.mouseLocation) == true\n"
@@ -531,6 +534,8 @@ def main():
           + declaration(notch, "    var showsSystemFeedback:")
           + declaration(notch, "    var usesGlassSurface:")
           + declaration(notch, "    var expandedGeometry:").replace("var expandedGeometry", "override var expandedGeometry", 1)
+          + declaration(notch, "    private func compactMusicTransition(").replace("private func", "func", 1)
+          + declaration(notch, "    private func rememberPresentedMusic(").replace("private func", "func", 1)
           + declaration(notch, "    func refreshPresentation(")
           + declaration(notch, "    private func applyMenuSpace(").replace("private func", "func", 1)
           + declaration(notch, "    func updateCaptureHeight(")
@@ -679,6 +684,7 @@ def main():
     write("SwitcherScroll.swift", "import AppKit\nimport SwiftUI\n"
           + "extension SwitcherScrollContract {\nstruct Strip: View {\n"
           + "@ObservedObject var switcher: Model\n"
+          + "var instantSelection = false\n"
           + "var iconRowContentWidth: CGFloat { switcher.iconRowLayout.contentWidth(simpleMode: true, windowRow: false) }\n"
           + "var body: some View {\nif selectedWindow != nil {\nlet appWindows = selectedAppWindows\n"
           + "if switcher.simple {\nGroup {\n"
@@ -861,6 +867,7 @@ def main():
           + declaration(music, "    private struct AutomationAction {").replace("private struct", "struct", 1)
           + declaration(music, "    var canSeek:")
           + declaration(music, "    func canPerform(")
+          + declaration(music, "    func lacksTrackSkipping(")
           + declaration(music, "    func requestAutomationAccess()")
           + declaration(music, "    private func beginAutomation(").replace("private func", "func", 1)
           + declaration(music, "    private func receiveValidation(").replace("private func", "func", 1)
@@ -880,7 +887,7 @@ def main():
     brightness_row = "Sources/Vorssaint/UI/MenuPanel/BrightnessSection.swift"
     write("SoftwareDimmingRow.swift", "import CoreGraphics\nimport Foundation\n\n"
           + "extension SoftwareDimmingRouteContract {\n"
-          + "final class Row {\nvar display = Display()\nvar chosen = false\n"
+          + "final class Row {\nvar display = Display()\nvar chosen = false\nvar compact = false\n"
           + declaration(brightness_row, "    private var offered:").replace("private var", "var", 1)
           + "}\n}\n")
 
@@ -892,12 +899,31 @@ def main():
           + "var routes: [CGDirectDisplayID: Route] = [:]\n"
           + "var lastApplied: [CGDirectDisplayID: Double] = [:]\n"
           + "var levelKnownAt: [CGDirectDisplayID: Foundation.Date] = [:]\n"
+          + "var pendingLevels: [CGDirectDisplayID: Double] = [:]\n"
           + "var softwareDims: [(id: CGDirectDisplayID, value: Double)] = []\n"
+          + "struct GammaTable { var red: [CGGammaValue] = [1]; var green: [CGGammaValue] = [1]; "
+          + "var blue: [CGGammaValue] = [1]; var count: UInt32 = 1; var fingerprint: String }\n"
+          + "var gammaBaselines: [CGDirectDisplayID: GammaTable] = [:]\n"
+          + "var dimmedDisplays = Set<CGDirectDisplayID>()\n"
+          + "var softwareSucceeds = true\nvar ddcSucceeds = true\nvar events: [String] = []\n"
           + "var forgottenWriteOnlyPaths: [String] = []\nvar refreshes = 0\n"
+          + "static func displayFingerprint(_ id: CGDirectDisplayID) -> String { \"display-\\(id)\" }\n"
+          + "func CGSetDisplayTransferByTable(_ id: CGDirectDisplayID, _ count: UInt32, "
+          + "_ red: [CGGammaValue], _ green: [CGGammaValue], _ blue: [CGGammaValue]) { "
+          + "events.append(\"restore:\\(id)\") }\n"
           + "func forgetWriteOnlyDDCPath(_ path: String?) { forgottenWriteOnlyPaths.append(path ?? \"\") }\n"
-          + "func applySoftwareDim(_ id: CGDirectDisplayID, value: Double) { softwareDims.append((id, value)) }\n"
+          + "@discardableResult func applySoftwareDim(_ id: CGDirectDisplayID, value: Double) -> Bool {\n"
+          + "softwareDims.append((id, value)); events.append(\"picture:\\(value)\")\n"
+          + "if softwareSucceeds { if value >= 0.999 { dimmedDisplays.remove(id) } else { dimmedDisplays.insert(id) } }\n"
+          + "return softwareSucceeds\n}\n"
+          + "func ddcSend(to id: CGDirectDisplayID, service: CFTypeRef, packet: [UInt8]) -> Bool {\n"
+          + "let value = UInt16(packet[3]) << 8 | UInt16(packet[4])\n"
+          + "events.append(\"ddc:\\(value)\"); return ddcSucceeds\n}\n"
           + "func refresh(force: Bool = false) { refreshes += 1 }\n"
           + declaration(brightness, "    func setSoftwareDimmingPreferred(")
+          + declaration(brightness, "    func setExtendedDimmingPreferred(")
+          + declaration(brightness, "    private func restoreAllGamma(").replace("private func", "func", 1)
+          + declaration(brightness, "    private func writeExtendedBrightness(").replace("private func", "func", 1)
           + "}\n}\n")
 
     keep_awake = "Sources/Vorssaint/Services/KeepAwakeManager.swift"

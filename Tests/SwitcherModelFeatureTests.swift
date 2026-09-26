@@ -277,6 +277,14 @@ enum SwitcherModelFeatureTests {
                == SwitcherSupport.defaultAppearanceDelayMilliseconds
                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherAppearanceDelay),
                "App Switcher keeps the current appearance delay by default and carries the choice in backups")
+        suite.expect(registeredDefaults[DefaultsKey.switcherInstantSelection] as? Bool == false
+               && SettingsBackupSupport.exportKeys().contains(DefaultsKey.switcherInstantSelection),
+               "App Switcher keeps smooth selection by default and carries instant selection in backups")
+        let instantSelectionBackup = SettingsBackupSupport.payload(appVersion: "test") { key in
+            key == DefaultsKey.switcherInstantSelection ? true : nil
+        }
+        suite.expect(SettingsBackupSupport.sanitizedSettings(from: instantSelectionBackup)?[DefaultsKey.switcherInstantSelection] as? Bool == true,
+               "App Switcher restores the instant selection choice from a settings backup")
         suite.expect(SwitcherSupport.appearanceDelayMillisecondsRange
                .contains(SwitcherSupport.defaultAppearanceDelayMilliseconds),
                "the default App Switcher appearance delay is one the slider accepts")
@@ -1624,10 +1632,10 @@ enum SwitcherModelFeatureTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        suite.expect(plistVersion == "3.4.0-beta.5",
+        suite.expect(plistVersion == "3.4.0-beta.6",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        suite.expect(plistBuild == "92",
+        suite.expect(plistBuild == "93",
                "every app version needs its own incremented bundle build")
         suite.expect(SupportUpdateIntroInfo.releaseVersion == "3.3.2",
                "the support prompt remains deliberately pinned to 3.3.2")

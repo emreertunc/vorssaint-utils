@@ -126,6 +126,10 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
         if panel.ignoresMouseEvents != effective { panel.ignoresMouseEvents = effective }
     }
 
+    func setOutline(enabled: Bool, color: NSColor) {
+        canvas.setOutline(enabled: enabled, color: color)
+    }
+
     func hide(animated: Bool, transitionContent: NotchContentTransition = .dismiss) {
         guard isPresented else { return }
         let animate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -596,6 +600,9 @@ final class NotchWindowHost: NSObject, CAAnimationDelegate {
     var backdropProbeContour: Path { canvas.backdropPresentation.contour }
     var backdropProbeUsesGlass: Bool { canvas.usesGlass }
     var backdropProbeOpenness: Double { canvas.backdropPresentation.openness }
+    var outlineProbeOpacity: Float { canvas.outlineProbeOpacity }
+    var outlineProbeWidth: CGFloat { canvas.outlineProbeWidth }
+    var outlineProbeTopOpen: Bool { canvas.outlineProbeTopOpen }
     /// Nil where this macOS has no overlay Spaces to offer.
     var overlayProbeHolds: Bool? { overlaySpace.map { $0.probeHolds(panel) } }
     var backdropProbeScheduled: Bool { canvas.backdropDisplayLink != nil }
@@ -934,6 +941,8 @@ private final class NotchCanvas: NSView {
     var hoverChanged: ((Bool) -> Void)?
     private let silhouette = CAShapeLayer()
     private let edge = CAShapeLayer()
+    private var outlineEnabled = false
+    private var outlineColor = NSColor.white
     private let contentVisibility = CALayer()
     private var dropActions: NotchFileDropActions?
     private var acceptingDrag = false
@@ -969,8 +978,13 @@ private final class NotchCanvas: NSView {
         addSubview(activationButton)
         edge.fillColor = nil
         updateContrast()
-        edge.lineWidth = 0.5
         edge.zPosition = 2
+        // The island hangs from the top of the screen, so its outline leaves
+        // that side open instead of drawing a line along the screen's edge.
+        let edgeMask = CALayer()
+        edgeMask.backgroundColor = NSColor.black.cgColor
+        edgeMask.frame = CGRect(x: -10_000, y: Self.outlineTopGap, width: 20_000, height: 20_000)
+        edge.mask = edgeMask
         layer?.addSublayer(edge)
         contentVisibility.name = "notch.contentVisibility"
         contentVisibility.backgroundColor = NSColor.black.cgColor
@@ -998,13 +1012,35 @@ private final class NotchCanvas: NSView {
     }
 
     func updateContrast() {
-        let color = NSColor.white.withAlphaComponent(
-            NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.45 : 0).cgColor
-        guard edge.strokeColor != color else { return }
+        let increasedContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let color = (increasedContrast ? NSColor.white : outlineColor).withAlphaComponent(
+            outlineEnabled ? (increasedContrast ? 0.85 : 0.65) : (increasedContrast ? 0.45 : 0)).cgColor
+        let lineWidth: CGFloat = outlineEnabled ? 2 : 0.5
+        let opacity: Float = outlineEnabled || contentSize.height > 64 ? 1 : 0
+        guard edge.strokeColor != color || edge.lineWidth != lineWidth || edge.opacity != opacity else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         edge.strokeColor = color
+        edge.lineWidth = lineWidth
+        edge.opacity = opacity
         CATransaction.commit()
+    }
+
+    func setOutline(enabled: Bool, color: NSColor) {
+        guard outlineEnabled != enabled || outlineColor != color else { return }
+        outlineEnabled = enabled
+        outlineColor = color
+        updateContrast()
+    }
+
+    /// The inner half of the widest outline stroke, left undrawn at the top.
+    static let outlineTopGap: CGFloat = 1
+
+    var outlineProbeOpacity: Float { edge.opacity }
+    var outlineProbeWidth: CGFloat { edge.lineWidth }
+    var outlineProbeTopOpen: Bool {
+        guard let mask = edge.mask else { return false }
+        return mask.frame.minY >= edge.lineWidth / 2 && mask.frame.minY <= Self.outlineTopGap
     }
 
     func setFileDropActions(_ actions: NotchFileDropActions?) {
@@ -1460,7 +1496,7 @@ private final class NotchCanvas: NSView {
         }
         silhouette.path = silhouettePath(for: motionStart ?? contentSize)
         edge.path = silhouette.path
-        edge.opacity = contentSize.height > 64 ? 1 : 0
+        updateContrast()
         // Keep foreground layout fixed inside the reserved reveal area. Only
         // the separate backdrop's contour changes on animation frames.
         var hostFrame = NotchStage.frame(stage, in: bounds)

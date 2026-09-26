@@ -79,11 +79,19 @@ final class NotchService: ObservableObject {
     @Published private(set) var noticeExpanded = false
     /// A compact notice stays drawn while the island closes around it.
     @Published private(set) var departingNotice: NotchNotice?
+    @Published private(set) var departingMusic: NotchCompactMusicSnapshot?
     @Published private(set) var captureActions: AnyView?
     @Published private(set) var captureContent: AnyView?
     /// Bumped when Command-W asks the Scratchpad page to close its selected
     /// pad, so the confirmation stays in the page as it does in the floating pad.
     @Published private(set) var scratchpadCloseSerial = 0
+    /// The last ⌘1–⌘9 pressed on the Clipboard page, which the page turns
+    /// into a paste of the entry at that place.
+    @Published private(set) var clipboardPastePress: NotchClipboardPastePress?
+    /// Whether the island panel holds the keyboard. Opened by hover, or left
+    /// open while another app is active, it does not, and its shortcuts then
+    /// reach the app in front instead.
+    @Published private(set) var panelIsKey = false
     @Published private var captureContentHeight: CGFloat?
     @Published private(set) var power = PowerReading()
     @Published private var musicDetailVisible = false
@@ -104,6 +112,8 @@ final class NotchService: ObservableObject {
     private var hoverWork: DispatchWorkItem?
     private var noticeWork: DispatchWorkItem?
     private var departureWork: DispatchWorkItem?
+    private var musicDepartureWork: DispatchWorkItem?
+    private var presentedMusic: NotchCompactMusicSnapshot?
     private var trackWork: DispatchWorkItem?
     private var powerSource: CFRunLoopSource?
     private var powerSampler: PowerSampler?
@@ -113,6 +123,7 @@ final class NotchService: ObservableObject {
     private var captureHover: ((Bool) -> Void)?
     private var captureClosesOnCollapse = false
     private var inside = false
+    private var hoverEmphasized = false
     private var hoverState = NotchHoverState()
     private var openedByHover = false
     /// A click inside the open island, which may be what brings another app forward.
@@ -397,8 +408,12 @@ final class NotchService: ObservableObject {
                 contentHeight: notice.previewContentHeight(width: geometry.notificationPreviewContentWidth))
         }
         if peeking { return geometry.peek }
-        if compactActivity != nil { return compactActivityGeometry.compactActivitySize }
-        return geometry.restingSize(showsContent: idleContent != .none)
+        if compactActivity != nil {
+            let resting = compactActivityGeometry.compactActivitySize
+            return hoverEmphasized ? NotchHoverEmphasis.size(from: resting, geometry: geometry) : resting
+        }
+        let resting = geometry.restingSize(showsContent: idleContent != .none)
+        return hoverEmphasized ? NotchHoverEmphasis.size(from: resting, geometry: geometry) : resting
     }
 
     var presentationWindow: NSPanel? { panel }
@@ -535,6 +550,8 @@ final class NotchService: ObservableObject {
         hoverWork?.cancel(); hoverWork = nil
         noticeWork?.cancel(); noticeWork = nil
         endDeparture()
+        finishMusicDeparture()
+        presentedMusic = nil
         trackWork?.cancel(); trackWork = nil
         subscriptions.removeAll()
         stopPower()
@@ -563,6 +580,7 @@ final class NotchService: ObservableObject {
         highlightedSection = nil
         sectionRow = 0
         inside = false
+        hoverEmphasized = false
         hoverState = NotchHoverState()
         openedByHover = false
         removeEventMonitors()
@@ -572,6 +590,7 @@ final class NotchService: ObservableObject {
         releaseMonitor()
         windowHost?.close()
         windowHost = nil
+        syncPanelKey()
         hiddenInFullscreen = false
     }
 
@@ -676,6 +695,13 @@ final class NotchService: ObservableObject {
             && windowHost?.isConcealedForMissionControl == false
             : windowHost?.containsHover(point) == true
         hoverState.update(pointerInside: inside)
+        let emphasize = inside && !hiddenUntilHover && !expanded && !peeking && !dragPlaceholder
+            && notice == nil && captureControls == nil
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if hoverEmphasized != emphasize {
+            hoverEmphasized = emphasize
+            refreshPresentation()
+        }
         captureHover?(entered)
         if captureControls != nil {
             updateCaptureControlsHover(wasInside: wasInside)
@@ -895,6 +921,15 @@ final class NotchService: ObservableObject {
         case .closeSelectedPad: scratchpadCloseSerial += 1
         case .hidePad: collapse()
         }
+        return true
+    }
+
+    private func handleClipboardPasteKey(_ event: NSEvent) -> Bool {
+        guard selected == .clipboard, !showingAppPanel, !showingSections, selectedMetric == nil else { return false }
+        let commandOnly = event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
+        guard let index = NotchClipboardPastePress.index(keyCode: event.keyCode, commandOnly: commandOnly)
+        else { return false }
+        clipboardPastePress = NotchClipboardPastePress(serial: (clipboardPastePress?.serial ?? 0) &+ 1, index: index)
         return true
     }
 
@@ -1436,8 +1471,45 @@ final class NotchService: ObservableObject {
         refreshPresentation(transitionContent: transitionContent)
     }
 
+    private func finishMusicDeparture() {
+        musicDepartureWork?.cancel(); musicDepartureWork = nil
+        guard departingMusic != nil else { return }
+        departingMusic = nil
+        if windowHost?.departsContent == true { windowHost?.finishDeparture() }
+    }
+
+    private func compactMusicTransition(_ requested: NotchContentTransition, animated: Bool) -> NotchContentTransition {
+        let musicVisible = compactMusicIsVisible
+        let canKeepDeparting = !musicVisible && compactActivity == nil && !expanded && !peeking
+            && notice == nil && !dragPlaceholder && captureControls == nil
+        if departingMusic != nil {
+            if canKeepDeparting && requested == .none && animated
+                && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return .none }
+            musicDepartureWork?.cancel(); musicDepartureWork = nil
+            departingMusic = nil
+            // A new presentation must replace the departure's forward-filled mask.
+            return requested == .none ? (animated ? .reveal : .replace) : requested
+        }
+        guard requested == .none, animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              panel?.isVisible == true, let presentedMusic, !musicVisible else { return requested }
+        if canKeepDeparting {
+            departingMusic = presentedMusic
+            return .depart
+        }
+        // Another compact activity took the same place as the disappearing track.
+        return !expanded && !peeking && compactActivity != nil && notice == nil ? .replace : requested
+    }
+
+    private func rememberPresentedMusic(playback: NotchPlayback?, artwork: NSImage?, tint: NotchArtworkTint?) {
+        guard compactMusicIsVisible, panel?.isVisible == true, let playback else { presentedMusic = nil; return }
+        presentedMusic = NotchCompactMusicSnapshot(playback: playback, artwork: artwork,
+                                                  tint: tint, geometry: compactActivityGeometry)
+    }
+
     func refreshPresentation(animated: Bool = true, transitionContent: NotchContentTransition = .none) {
         if hiddenInFullscreen {
+            finishMusicDeparture()
+            presentedMusic = nil
             windowHost?.hide(animated: false)
             removeHiddenHoverMonitors()
             removeScreenEdgeClickMonitors()
@@ -1445,6 +1517,8 @@ final class NotchService: ObservableObject {
         }
         syncHiddenHoverMonitoring()
         if hiddenUntilHover || (captureControls != nil && captureSelectionInProgress) {
+            finishMusicDeparture()
+            presentedMusic = nil
             if hiddenUntilHover { windowHost?.hide(animated: animated, transitionContent: transitionContent) }
             else { panel?.orderOut(nil) }
             removeScreenEdgeClickMonitors()
@@ -1452,17 +1526,22 @@ final class NotchService: ObservableObject {
         }
         let open = expanded || peeking || notice != nil || dragPlaceholder || captureControls != nil
         guard open || geometry.isNotched || geometry.compactSideRoom != nil else {
+            finishMusicDeparture()
+            presentedMusic = nil
             windowHost?.hide(animated: animated, transitionContent: transitionContent)
             removeScreenEdgeClickMonitors()
             return
         }
         let access = NotchQuickAccessConfiguration.current()
         let size = surfaceSize
+        let contentTransition = compactMusicTransition(transitionContent, animated: animated)
         // Preferences can change computed dimensions without publishing a
         // service property. Update SwiftUI's layout along with the native host.
         if let windowHost, windowHost.targetSize != size { objectWillChange.send() }
+        windowHost?.setOutline(enabled: UserDefaults.standard.bool(forKey: DefaultsKey.notchOutlineEnabled),
+                               color: compactActivityIsVisible && compactActivity == .timer ? .systemOrange : .white)
         windowHost?.present(size: size, geometry: expanded ? expandedGeometry : geometry, animated: animated,
-                            transitionContent: transitionContent,
+                            transitionContent: contentTransition,
                             quickAccess: expanded && captureControls == nil && !access.buttons.isEmpty ? access : nil,
                             revealFromHidden: captureControls == nil
                                 && UserDefaults.standard.bool(forKey: DefaultsKey.notchHideUntilHover)
@@ -1492,6 +1571,15 @@ final class NotchService: ObservableObject {
                 else { self.toggle() }
             })
         if panel?.isVisible != true { panel?.orderFrontRegardless() }
+        let music = NotchMusicService.shared
+        rememberPresentedMusic(playback: music.playback, artwork: music.artwork, tint: music.artworkTint)
+        if contentTransition == .depart {
+            if windowHost?.departsContent == true {
+                let work = DispatchWorkItem { [weak self] in self?.finishMusicDeparture() }
+                musicDepartureWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.departureHidden, execute: work)
+            } else { finishMusicDeparture() }
+        }
         syncScreenEdgeClicks()
     }
 
@@ -1745,6 +1833,7 @@ final class NotchService: ObservableObject {
         hiddenInFullscreen = hidden
         if hidden {
             hoverWork?.cancel(); hoverWork = nil
+            hoverEmphasized = false
             heldDrag = false
             dragPlaceholder = false
             cancelCaptureControls()
@@ -1790,6 +1879,8 @@ final class NotchService: ObservableObject {
             DispatchQueue.main.async { self?.syncWithPreferences() }
         }
         observe(.default, .menuPanelWillShow) { [weak self] in self?.collapse() }
+        observe(.default, NSWindow.didBecomeKeyNotification) { [weak self] in self?.syncPanelKey() }
+        observe(.default, NSWindow.didResignKeyNotification) { [weak self] in self?.syncPanelKey() }
         session.onConsole = SessionActivity.shared.isActive
         session.locked = (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
         let workspace = NSWorkspace.shared.notificationCenter
@@ -1837,6 +1928,11 @@ final class NotchService: ObservableObject {
                                            pointerInside: windowHost?.containsHover(NSEvent.mouseLocation) == true) {
             collapse()
         }
+    }
+
+    private func syncPanelKey() {
+        let isKey = panel?.isKeyWindow == true
+        if panelIsKey != isKey { panelIsKey = isKey }
     }
 
     private func observe(_ center: NotificationCenter, _ name: Notification.Name,
@@ -1909,6 +2005,7 @@ final class NotchService: ObservableObject {
                 }
                 if self.handleSectionKey(event) { return nil }
                 if self.handleScratchpadKey(event) { return nil }
+                if self.handleClipboardPasteKey(event) { return nil }
             }
             if event.type == .keyDown, event.window === self.panel, self.selected == .tools, !self.showingAppPanel, !self.showingSections {
                 let launcher = QuickLauncherService.shared
@@ -2031,7 +2128,15 @@ final class NotchService: ObservableObject {
                 }.store(in: &subscriptions)
         }
         if modules.contains(.music) {
-            NotchMusicService.shared.$playback.map { ($0 != nil, $0?.isPlaying == true) }
+            let music = NotchMusicService.shared
+            music.$playback.combineLatest(music.$artwork, music.$artworkTint)
+                .sink { [weak self] playback, artwork, tint in
+                    // @Published sends before storing the new value. Keep the last
+                    // visible track and cover before playback disappears.
+                    guard playback != nil else { return }
+                    self?.rememberPresentedMusic(playback: playback, artwork: artwork, tint: tint)
+                }.store(in: &subscriptions)
+            music.$playback.map { ($0 != nil, $0?.isPlaying == true) }
                 .removeDuplicates { $0 == $1 }.receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
                     self?.syncMenuSpaceMonitoring()
