@@ -34,6 +34,13 @@ extension NotchPresentationRefreshContract {
         }
 
         let idle = begin()
+        var surfaceUpdates: [(CGRect, CGFloat)] = []
+        idle.captureControls?.onCaptureControlsSurfaceChange = { surfaceUpdates.append(($0, $1)) }
+        idle.refreshPresentation(animated: false)
+        let expandedSurfaceHeight = idle.surfaceSize.height
+        suite.expect(surfaceUpdates.last?.0 == idle.geometry.screen
+               && surfaceUpdates.last?.1 == expandedSurfaceHeight,
+               "capture controls publish their initial surface geometry to the selection overlay")
         for _ in 0..<5 {
             DispatchQueue.main.advance(0.5)
             move(idle, inside: false)
@@ -42,10 +49,15 @@ extension NotchPresentationRefreshContract {
         DispatchQueue.main.advance(0.5)
         suite.expect(idle.captureControlsCollapsed && idle.captureControls != nil,
                "pointer movement outside controls does not postpone collapse or cancel capture")
+        suite.expect(surfaceUpdates.last?.1 == idle.surfaceSize.height
+               && (surfaceUpdates.last?.1 ?? expandedSurfaceHeight) < expandedSurfaceHeight,
+               "collapsing capture controls republishes the smaller surface height")
         suite.expect(idle.panel?.isVisible == true && idle.windowHost?.activationRect.isEmpty == false,
                "collapsed capture retains a clickable reopening target")
         idle.windowHost?.activate?()
         suite.expect(!idle.captureControlsCollapsed, "the compact activation target reopens capture controls")
+        suite.expect(surfaceUpdates.last?.1 == expandedSurfaceHeight,
+               "reopening capture controls restores the full surface height for the selection overlay")
 
         move(idle, inside: true)
         suite.expect(idle.panel?.acceptsMouseMovedEvents == true && idle.panel?.ignoresMouseEvents == false,

@@ -1751,6 +1751,10 @@ final class NotchService: ObservableObject {
                                 && UserDefaults.standard.bool(forKey: DefaultsKey.notchHideUntilHover)
                                 && UserDefaults.standard.bool(forKey: DefaultsKey.notchOpenOnHover),
                             usesGlass: !fullscreenCompact && usesGlassSurface)
+        // The selector lives in a separate full-screen panel. Publish every
+        // capture-controls resize so its full-screen action remains tucked
+        // directly below the island as the controls collapse or reopen.
+        captureControls?.onCaptureControlsSurfaceChange?(geometry.screen, size.height)
         // Closing can shrink the island away from a pointer that has not moved,
         // with no boundary crossing to report it. Only a pointer still over the
         // island may keep its next approach from opening it.
