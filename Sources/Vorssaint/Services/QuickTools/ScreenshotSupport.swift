@@ -299,6 +299,35 @@ enum ScreenshotSupport {
         }
     }
 
+    /// What a finished capture shows once its after-capture action ran.
+    enum QuickPreviewPresentation: Equatable {
+        case hidden
+        /// A nil interval keeps the preview until it is dismissed.
+        case shown(dismissInterval: TimeInterval?)
+    }
+
+    /// The whole decision `route` makes, read from the person's settings: a
+    /// successful action shows the confirmation for its chosen duration or
+    /// nothing at all, while a failed or partial action, or no action, gets
+    /// the recovery preview with its longer timer.
+    static func quickPreviewPresentation(defaultAction: ScreenshotDefaultAction,
+                                         saved: Bool,
+                                         copied: Bool,
+                                         defaults: UserDefaults) -> QuickPreviewPresentation {
+        guard shouldShowQuickPreview(
+            defaultAction: defaultAction, saved: saved, copied: copied,
+            confirmationEnabled: defaults.bool(forKey: DefaultsKey.screenshotPreviewEnabled))
+        else { return .hidden }
+        guard automaticActionSucceeded(defaultAction, saved: saved, copied: copied) else {
+            return .shown(dismissInterval: recoveryPreviewDismissInterval)
+        }
+        // A stored value that is not a number reads as the default duration,
+        // not as 0, which would keep every confirmation until dismissed.
+        let duration = (defaults.object(forKey: DefaultsKey.screenshotPreviewDuration) as? NSNumber)?
+            .intValue ?? defaultConfirmationPreviewDuration
+        return .shown(dismissInterval: confirmationPreviewDismissInterval(duration))
+    }
+
     /// Remaining stroke for the one-second countdown ring. Time drives the
     /// value directly so a delayed frame catches up instead of restarting the
     /// animation or leaving the ring frozen.

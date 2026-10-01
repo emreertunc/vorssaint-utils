@@ -756,6 +756,48 @@ enum ScreenshotFeatureTests {
                                                               copied: true,
                                                               confirmationEnabled: false),
                "automatic actions honor confirmation preferences while failed or partial actions still expose recovery controls")
+        // The decision route makes after the action ran, read from settings.
+        let routeDefaultsDomain = "com.vorssaint.tests.screenshot-preview-route.\(UUID().uuidString)"
+        let routeDefaults = UserDefaults(suiteName: routeDefaultsDomain)!
+        defer { routeDefaults.removePersistentDomain(forName: routeDefaultsDomain) }
+        func routePreview(_ action: ScreenshotDefaultAction, saved: Bool = false,
+                          copied: Bool = false) -> ScreenshotSupport.QuickPreviewPresentation {
+            ScreenshotSupport.quickPreviewPresentation(defaultAction: action, saved: saved,
+                                                       copied: copied, defaults: routeDefaults)
+        }
+        let recovery = ScreenshotSupport.QuickPreviewPresentation.shown(
+            dismissInterval: ScreenshotSupport.recoveryPreviewDismissInterval)
+        routeDefaults.set(true, forKey: DefaultsKey.screenshotPreviewEnabled)
+        routeDefaults.set(10, forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.save, saved: true) == .shown(dismissInterval: 10)
+                && routePreview(.copy, copied: true) == .shown(dismissInterval: 10)
+                && routePreview(.none) == recovery && routePreview(.edit) == .hidden,
+               "a successful action confirms for the chosen duration and asking each time keeps the longer timer")
+        routeDefaults.set(0, forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.saveAndCopy, saved: true, copied: true) == .shown(dismissInterval: nil),
+               "until dismissed keeps a successful confirmation with no timer")
+        routeDefaults.set(false, forKey: DefaultsKey.screenshotPreviewEnabled)
+        suite.expect(routePreview(.save, saved: true) == .hidden
+                && routePreview(.saveAndCopy, saved: true, copied: true) == .hidden
+                && routePreview(.save) == recovery
+                && routePreview(.saveAndCopy, saved: true) == recovery
+                && routePreview(.copy) == recovery,
+               "with confirmations off a successful action shows nothing and a failed or partial one still shows the recovery preview")
+        routeDefaults.set(true, forKey: DefaultsKey.screenshotPreviewEnabled)
+        routeDefaults.set("soon", forKey: DefaultsKey.screenshotPreviewDuration)
+        suite.expect(routePreview(.save, saved: true) == .shown(
+                    dismissInterval: TimeInterval(ScreenshotSupport.defaultConfirmationPreviewDuration)),
+               "a stored duration that is not a number falls back to the default instead of staying until dismissed")
+        let screenshotRouteBody = ((try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/ScreenshotService.swift",
+            encoding: .utf8)) ?? "")
+            .components(separatedBy: "    private func route(_ capture:").dropFirst().first?
+            .components(separatedBy: "\n    }\n").first ?? ""
+        suite.expect(screenshotRouteBody.contains("guard case .shown(let dismissInterval) = ScreenshotSupport.quickPreviewPresentation(")
+                && screenshotRouteBody.contains("defaults: defaults)\n        else { return }\n        presentPreview(capture,")
+                && screenshotRouteBody.components(separatedBy: "presentPreview(").count == 2
+                && screenshotRouteBody.contains("dismissInterval: dismissInterval)"),
+               "route shows exactly the preview the shared decision asks for")
 
         // A gesture that ends with more than one release, like a drag made
         // with three fingers, delivers events after the capture is over.
@@ -1019,8 +1061,14 @@ enum ScreenshotFeatureTests {
         let orderFrontLine = presentLines.firstIndex { $0.contains("orderFrontRegardless()") } ?? -1
         let makeKeyLine = presentLines.firstIndex { $0.contains("makeKey") } ?? -1
         suite.expect(orderFrontLine >= 0 && makeKeyLine > orderFrontLine
-                && presentLines[makeKeyLine - 1].contains("takesFocus"),
+                && presentLines[makeKeyLine - 1].trimmingCharacters(in: .whitespaces)
+                    == "if presentationPolicy.takesFocus {",
                "the screenshot preview takes key focus only behind the presentation policy, once the panel is on screen")
+        // The island reads the same policy: whether it takes the keyboard and
+        // whether a collapse closes the preview come from it, never a literal.
+        suite.expect(quickPreviewCode.contains("takeFocus: presentationPolicy.takesFocus,")
+                && quickPreviewCode.contains("closeOnCollapse: presentationPolicy.closesOnCollapse,"),
+               "the island preview takes the keyboard and closes on collapse exactly as the presentation policy says")
         let makeKeyCount = quickPreviewCode.components(separatedBy: "makeKey").count - 1
         let panelMakeKeyCount = panelBody.components(separatedBy: "makeKey").count - 1
         suite.expect(makeKeyCount == panelMakeKeyCount + 1 && panelMakeKeyCount >= 1,

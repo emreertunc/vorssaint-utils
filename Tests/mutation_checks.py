@@ -203,6 +203,14 @@ MUTATIONS = [
     ("overwrite unreadable notes", "storage", "Sources/Vorssaint/Services/QuickTools/ScratchpadStore.swift",
      "        guard canSave else { return false }", "        // guard canSave else { return false }",
      "damaged scratchpad blocks subsequent saves of empty and nonempty documents"),
+    ("island forgets a preview stays until dismissed", "notch", "Sources/Vorssaint/Services/Notch/NotchService.swift",
+     "        captureClosesOnCollapse = closeOnCollapse\n", "",
+     "capture controls detach a persistent preview before closing it after island takeover"),
+    ("confirmation switch stops hiding previews", "screenshots",
+     "Sources/Vorssaint/Services/QuickTools/ScreenshotSupport.swift",
+     "confirmationEnabled: defaults.bool(forKey: DefaultsKey.screenshotPreviewEnabled))",
+     "confirmationEnabled: true)",
+     "with confirmations off a successful action shows nothing"),
 ]
 
 

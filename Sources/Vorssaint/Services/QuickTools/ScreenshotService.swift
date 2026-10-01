@@ -420,22 +420,12 @@ final class ScreenshotService: ObservableObject {
             return
         }
         let result = runDefaultAction(defaultAction, capture: capture)
-        let saved = result.saved != nil
-        let copied = result.performed.contains(.copy)
-        let confirmationEnabled = defaults.bool(forKey: DefaultsKey.screenshotPreviewEnabled)
-        guard ScreenshotSupport.shouldShowQuickPreview(
+        guard case .shown(let dismissInterval) = ScreenshotSupport.quickPreviewPresentation(
             defaultAction: defaultAction,
-            saved: saved,
-            copied: copied,
-            confirmationEnabled: confirmationEnabled)
+            saved: result.saved != nil,
+            copied: result.performed.contains(.copy),
+            defaults: defaults)
         else { return }
-
-        let automaticActionSucceeded = ScreenshotSupport.automaticActionSucceeded(
-            defaultAction, saved: saved, copied: copied)
-        let dismissInterval: TimeInterval? = automaticActionSucceeded
-            ? ScreenshotSupport.confirmationPreviewDismissInterval(
-                defaults.integer(forKey: DefaultsKey.screenshotPreviewDuration))
-            : ScreenshotSupport.recoveryPreviewDismissInterval
         presentPreview(capture,
                        defaultAction: defaultAction,
                        initialSaved: result.saved,
