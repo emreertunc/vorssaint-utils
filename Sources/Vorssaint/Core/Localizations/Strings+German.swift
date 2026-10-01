@@ -246,6 +246,7 @@ extension Strings {
         dockPreviewCurrentSpaceOnlyCaption: "Wenn ausgeschaltet, werden Fenster aller Schreibtische angezeigt. Die Auswahl eines Fensters auf einem anderen Schreibtisch wechselt dorthin.",
         dockPreviewBackgroundOpacity: "Hintergrund des Panels",
         dockPreviewBackgroundOpacityCaption: "Verringere ihn, um mehr von dem zu sehen, was hinter dem Panel liegt.",
+        dockPreviewBackgroundOpacityGlassCaption: "Bei aktiviertem Liquid Glass wird die Transparenz des Panels in Systemeinstellungen > Erscheinungsbild festgelegt.",
         dockPreviewOpenDelay: "Öffnungsverzögerung",
         dockPreviewOpenDelayCaption: "Wie lange der Zeiger auf einem Symbol ruhen muss, bevor sich das Panel öffnet.",
         dockPreviewQuitAppOnClose: "App mit der ×-Taste beenden",
@@ -301,6 +302,7 @@ extension Strings {
         autoQuitStep1: "Schließe das letzte Fenster einer App (⌘W oder der rote Knopf).",
         autoQuitStep2: "Die App beendet sich von selbst. „Sichern?“-Dialoge erscheinen weiterhin.",
         autoQuitPredictableNote: "Apps, die normalerweise ohne Fenster laufen, werden nie beendet.",
+        autoQuitOngoingWorkNote: "Manche Apps schließen ihr letztes Fenster und arbeiten weiter, etwa eine Bildschirmaufnahme nach dem Start der Aufnahme. Sie werden ebenfalls beendet, sofern sie nicht in den Ausnahmen stehen.",
         autoQuitExceptionsTitle: "Ausnahmen",
         autoQuitExceptionsCaption: "Apps in dieser Liste bleiben auch ohne Fenster geöffnet.",
         autoQuitExceptionsEmpty: "Keine Ausnahmen",
@@ -1076,7 +1078,12 @@ extension Strings {
         smoothScrollCoastLabel: "Auslauf",
         mouseAccelerationName: "Mausbeschleunigung deaktivieren",
         mouseAccelerationCaption: "Deaktiviert die Zeigerbeschleunigung für angeschlossene Mäuse. Die vorherige Einstellung wird beim Ausschalten oder Beenden von Vorssaint wiederhergestellt.",
+        linearScrollName: "Lineares Scrollen",
+        linearScrollCaption: "Jeder Rastschritt des Mausrads scrollt dieselbe Strecke, egal wie schnell es gedreht wird. Das Trackpad bleibt unverändert.",
+        linearScrollLinesLabel: "Zeilen pro Rastschritt",
         shelfClearOnClose: "Beim Schließen leeren",
-        shelfClearOnCloseCaption: "Leert die Ablage nur, wenn du auf die Schließen-Taste klickst. Automatisches Ausblenden und Einklappen behalten die Objekte."
+        shelfClearOnCloseCaption: "Leert die Ablage nur, wenn du auf die Schließen-Taste klickst. Automatisches Ausblenden und Einklappen behalten die Objekte.",
+        shelfShortcutFinderSelection: "Finder-Auswahl per Kurzbefehl hinzufügen",
+        shelfShortcutFinderSelectionCaption: "Ist der Finder im Vordergrund, öffnet der Kurzbefehl die Ablage bereits mit den ausgewählten Dateien. Ohne Auswahl öffnet sie sich wie gewohnt."
     )
 }

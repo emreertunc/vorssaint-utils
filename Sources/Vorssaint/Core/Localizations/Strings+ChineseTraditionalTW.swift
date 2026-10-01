@@ -247,6 +247,7 @@ extension Strings {
         dockPreviewCurrentSpaceOnlyCaption: "關閉時顯示所有桌面的視窗。選擇其他桌面上的視窗時，會切換至該桌面。",
         dockPreviewBackgroundOpacity: "面板背景",
         dockPreviewBackgroundOpacityCaption: "調低後可以看到更多面板後面的內容。",
+        dockPreviewBackgroundOpacityGlassCaption: "Liquid Glass 已開啟，面板的透明度由「系統設定」>「外觀」決定。",
         dockPreviewOpenDelay: "開啟延遲",
         dockPreviewOpenDelayCaption: "指標停在圖示上多久之後才打開面板。",
         dockPreviewQuitAppOnClose: "使用 × 按鈕結束 App",
@@ -302,6 +303,7 @@ extension Strings {
         autoQuitStep1: "關閉某個 App 的最後一個視窗（⌘W 或紅色按鈕）。",
         autoQuitStep2: "該 App 會自行結束。「是否儲存變更？」對話框仍會出現。",
         autoQuitPredictableNote: "一般來說，沒有視窗的 App 不會自行結束。",
+        autoQuitOngoingWorkNote: "有些 App 關閉最後一個視窗後仍繼續運作，例如開始錄製後的螢幕錄製 App。除非在例外列表中，否則也會被結束。",
         autoQuitExceptionsTitle: "例外",
         autoQuitExceptionsCaption: "此清單中的 App 即使沒有視窗也會保持開啟。",
         autoQuitExceptionsEmpty: "沒有例外",
@@ -1077,7 +1079,12 @@ extension Strings {
         smoothScrollCoastLabel: "慣性",
         mouseAccelerationName: "關閉滑鼠加速",
         mouseAccelerationCaption: "移除已連接滑鼠的指標加速。關閉此選項或結束 Vorssaint 後，會還原先前的設定。",
+        linearScrollName: "線性捲動",
+        linearScrollCaption: "無論轉動多快，滑鼠滾輪每一格都捲動相同的距離。觸控式軌跡板不受影響。",
+        linearScrollLinesLabel: "每格行數",
         shelfClearOnClose: "關閉時清空",
-        shelfClearOnCloseCaption: "只有點按關閉按鈕時才會清空暫存架。自動隱藏或收合時會保留項目。"
+        shelfClearOnCloseCaption: "只有點按關閉按鈕時才會清空暫存架。自動隱藏或收合時會保留項目。",
+        shelfShortcutFinderSelection: "使用快速鍵加入 Finder 所選項目",
+        shelfShortcutFinderSelectionCaption: "Finder 位於前景時，快速鍵會打開暫存架並放入所選檔案。未選取任何項目時照常打開。"
     )
 }

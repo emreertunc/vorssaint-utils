@@ -247,6 +247,7 @@ extension Strings {
         dockPreviewCurrentSpaceOnlyCaption: "Когда выключено, показываются окна со всех рабочих столов. Выбор окна на другом рабочем столе переключает вас на него.",
         dockPreviewBackgroundOpacity: "Фон панели",
         dockPreviewBackgroundOpacityCaption: "Уменьшите, чтобы видеть больше того, что находится за панелью.",
+        dockPreviewBackgroundOpacityGlassCaption: "Liquid Glass включён, поэтому прозрачность панели задаётся в разделе «Системные настройки > Оформление».",
         dockPreviewOpenDelay: "Задержка открытия",
         dockPreviewOpenDelayCaption: "Сколько указатель должен оставаться на значке, прежде чем откроется панель.",
         dockPreviewQuitAppOnClose: "Завершать приложение кнопкой ×",
@@ -302,6 +303,7 @@ extension Strings {
         autoQuitStep1: "Закройте последнее окно приложения (⌘W или красной кнопкой).",
         autoQuitStep2: "Приложение завершится само. Диалоги «Сохранить изменения?» по-прежнему будут показываться.",
         autoQuitPredictableNote: "Приложения, которые обычно работают без окна, никогда не закрываются автоматически.",
+        autoQuitOngoingWorkNote: "Некоторые приложения закрывают последнее окно, но продолжают работать, например программа записи экрана после начала записи. Если их нет в списке исключений, они тоже завершатся.",
         autoQuitExceptionsTitle: "Исключения",
         autoQuitExceptionsCaption: "Приложения в этом списке остаются открытыми даже без окон.",
         autoQuitExceptionsEmpty: "Без исключений",
@@ -1077,7 +1079,12 @@ extension Strings {
         smoothScrollCoastLabel: "Инерция",
         mouseAccelerationName: "Отключить ускорение мыши",
         mouseAccelerationCaption: "Отключает ускорение указателя для подключённых мышей. Прежняя настройка вернётся после выключения функции или выхода из Vorssaint.",
+        linearScrollName: "Линейная прокрутка",
+        linearScrollCaption: "Каждый щелчок колёсика мыши прокручивает одно и то же расстояние независимо от скорости вращения. Трекпад не меняется.",
+        linearScrollLinesLabel: "Строк на щелчок",
         shelfClearOnClose: "Очищать при закрытии",
-        shelfClearOnCloseCaption: "Очищает полку только при нажатии кнопки закрытия. Автоматическое скрытие и сворачивание сохраняют элементы."
+        shelfClearOnCloseCaption: "Очищает полку только при нажатии кнопки закрытия. Автоматическое скрытие и сворачивание сохраняют элементы.",
+        shelfShortcutFinderSelection: "Добавлять выбранное в Finder по горячей клавише",
+        shelfShortcutFinderSelectionCaption: "Когда Finder на переднем плане, горячая клавиша открывает полку уже с выбранными файлами. Если ничего не выбрано, полка открывается как обычно."
     )
 }

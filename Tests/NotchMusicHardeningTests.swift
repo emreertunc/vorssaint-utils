@@ -79,6 +79,7 @@ enum NotchLyricsContract {
         static var shared = NotchService()
         var presentationWindow: Window? = Window()
         var acceptsSystemFeedback = true
+        var acceptsUserInteraction = true
         var expanded = true
         var selected: NotchModule = .music
         var showingAppPanel = false
@@ -125,6 +126,12 @@ enum NotchMusicCommandContract {
         func drain() { while !jobs.isEmpty { jobs.removeFirst()() } }
     }
     enum DispatchQueue { static var main = Scheduler() }
+    /// Records the song still published each time a new one is announced.
+    final class TrackChanges {
+        var shown: () -> NotchPlayback? = { nil }
+        var announcedOver: [NotchPlayback?] = []
+        func send() { announcedOver.append(shown()) }
+    }
     final class Process { var isRunning = true }
     final class Pipe {
         let fileHandleForWriting = Handle()
@@ -146,8 +153,11 @@ enum NotchMusicHardeningTests {
         sourcePriority(suite)
         sourceSwitching(suite)
         sourceRestore(suite)
+        sourcePreference(suite)
         artworkInheritance(suite)
         trackChanges(suite)
+        playbackGap(suite)
+        standInGap(suite)
         NotchPlaybackRoutingTests.run(suite)
         lyricExpansion(suite)
         lyricLifecycle(suite)
@@ -264,6 +274,29 @@ enum NotchMusicHardeningTests {
         service.stop()
     }
 
+    private static func sourcePreference(_ suite: TestSuite) {
+        typealias Contract = NotchMusicCommandContract
+        let preferences = Contract.Service.UserDefaults.standard
+        preferences.includeOtherPlayers = false
+        defer { preferences.includeOtherPlayers = false }
+        let service = Contract.Service()
+        service.start()
+        suite.expect(service.launches == 1 && !service.includeOtherPlayers,
+                     "automatic playback starts with music apps only")
+        service.start()
+        suite.expect(service.launches == 1, "an unchanged playback scope does not restart the adapter")
+        service.chosenSource = .init(pid: 20, bundleIdentifier: "test.browser")
+        preferences.includeOtherPlayers = true
+        service.start()
+        suite.expect(service.launches == 2 && service.includeOtherPlayers && service.restoringSource,
+                     "including other players restarts discovery and preserves a manual choice")
+        preferences.includeOtherPlayers = false
+        service.start()
+        suite.expect(service.launches == 3 && !service.includeOtherPlayers && service.restoringSource,
+                     "turning the option off restores music-only discovery without losing the chosen source")
+        service.stop()
+    }
+
     /// The island announces a new song, never what a playing song keeps
     /// reporting or what a reader finds when it starts.
     private static func trackChanges(_ suite: TestSuite) {
@@ -297,8 +330,150 @@ enum NotchMusicHardeningTests {
         tracker.reset()
         suite.expect(!tracker.isNewSong(reading("Five"), first: false),
                      "after the reader stops, a player's first song is not a change")
+        let playing = reading("Song")
+        suite.expect(NotchTrackChange.isBetweenSongs(nil, after: playing)
+                     && NotchTrackChange.isBetweenSongs(reading("Other", player: "com.example.other", playing: false), after: playing)
+                     && NotchTrackChange.isBetweenSongs(reading("Next", playing: false), after: playing),
+                     "nothing playing, another player's paused song or the next song paused is a player between songs")
+        suite.expect(!NotchTrackChange.isBetweenSongs(reading("Song", playing: false), after: playing)
+                     && !NotchTrackChange.isBetweenSongs(reading("Song", artist: nil, playing: false), after: playing)
+                     && !NotchTrackChange.isBetweenSongs(reading("Next"), after: playing)
+                     && !NotchTrackChange.isBetweenSongs(reading("Other", player: "com.example.other"), after: playing)
+                     && !NotchTrackChange.isBetweenSongs(reading("Other", player: "com.example.other", playing: false),
+                                                         after: reading("Song", playing: false)),
+                     "a pause, a song that plays, or a change after a paused song is shown at once")
+        func listing(hasTrack: Bool) -> NotchPlaybackSource {
+            NotchPlaybackSource(pid: 42, bundleIdentifier: "com.example.player", isMusicApp: false,
+                                isPlaying: false, hasTrack: hasTrack)
+        }
+        suite.expect(!NotchTrackChange.isBetweenSongs(reading("Other", player: "com.example.other", playing: false),
+                                                      after: playing, sources: [listing(hasTrack: true)]),
+                     "a player paused while automatic playback moves to another player's paused song is a pause")
+        suite.expect(NotchTrackChange.isBetweenSongs(reading("Other", player: "com.example.other", playing: false),
+                                                     after: playing, sources: [listing(hasTrack: false)])
+                     && NotchTrackChange.isBetweenSongs(reading("Next", playing: false), after: playing,
+                                                        sources: [listing(hasTrack: true)]),
+                     "a stand-in for a player that lists no song, or that player's own next song paused, is still a gap")
         suite.expect(NotchEvent.track.priority == 0 && NotchEvent.track.duration == 3,
                      "a new song gives way to any other notice and leaves after three seconds")
+    }
+
+    /// A player moving on to its next song can report nothing playing for a
+    /// moment. The production reading path keeps the last song through it.
+    private static func playbackGap(_ suite: TestSuite) {
+        typealias Contract = NotchMusicCommandContract
+        Contract.DispatchQueue.main = Contract.Scheduler()
+        defer { Contract.DispatchQueue.main = Contract.Scheduler() }
+        let service = Contract.Service()
+        service.trackChanges.shown = { [unowned service] in service.playback }
+        let player = NotchPlaybackSource(pid: 42, bundleIdentifier: "org.example.player", isMusicApp: true,
+                                         isPlaying: true, hasTrack: true)
+        let other = NotchPlaybackSource(pid: 202, bundleIdentifier: "test.browser", isMusicApp: false,
+                                        isPlaying: false, hasTrack: true)
+        func reading(_ playback: NotchPlayback?, sources: [NotchPlaybackSource] = [player, other]) -> Contract.Service.Reading {
+            Contract.Service.Reading(playback: playback, artwork: nil, tint: nil, sources: sources,
+                                     automatic: true, selectedPID: nil)
+        }
+        func controllable(_ item: String) -> NotchPlayback {
+            var song = playback(item)
+            song.commandContext = NotchPlaybackContext(pid: 42, revision: UUID())
+            song.canSendCommandsDirectly = true
+            return song
+        }
+        let current = controllable("current"), next = controllable("next")
+        service.start()
+        service.receive(reading(current))
+        service.receive(reading(nil, sources: [other]))
+        suite.expect(service.playback == current && service.sources == [player, other] && !service.awaitingPlayback,
+                     "a player between songs keeps its last song and sources instead of the empty page")
+        suite.expect(!service.send(.next) && !service.commandFailed,
+                     "the held song's controls send nothing, so a press cannot read as a failure")
+        service.receive(reading(nil, sources: [other]))
+        suite.expect(Contract.DispatchQueue.main.jobs.count == 1, "another empty reading does not extend the grace period")
+        service.receive(reading(next))
+        suite.expect(service.playback == next && service.gapWork == nil && service.trackChanges.announcedOver == [current],
+                     "the next song replaces the held one at once, announced while the old one is still shown")
+        suite.expect(service.send(.next), "the next song's controls work at once")
+        Contract.DispatchQueue.main.drain()
+        suite.expect(service.playback == next, "the ended gap cannot clear the next song later")
+        service.receive(reading(nil, sources: [other]))
+        Contract.DispatchQueue.main.drain()
+        suite.expect(service.playback == nil && service.sources == [other] && !service.awaitingPlayback,
+                     "playback that stays gone empties the page after the grace period, with the latest sources")
+        service.receive(reading(next))
+        service.receive(reading(nil, sources: [other]))
+        service.selectSource(other.selection)
+        Contract.DispatchQueue.main.drain()
+        suite.expect(service.playback == nil && service.awaitingPlayback,
+                     "choosing another source during a gap still waits for that source's first reading")
+        service.receive(reading(current))
+        service.receive(reading(nil, sources: [other]))
+        service.stop()
+        Contract.DispatchQueue.main.drain()
+        suite.expect(service.playback == nil && service.gapWork == nil,
+                     "stopping during a gap ends it, and the held song cannot come back")
+    }
+
+    /// Between songs another player's paused song can stand in, or the next
+    /// song can be reported paused before it starts. The production reading
+    /// path keeps the song that played through both, as through an empty one.
+    private static func standInGap(_ suite: TestSuite) {
+        typealias Contract = NotchMusicCommandContract
+        Contract.DispatchQueue.main = Contract.Scheduler()
+        defer { Contract.DispatchQueue.main = Contract.Scheduler() }
+        let service = Contract.Service()
+        service.trackChanges.shown = { [unowned service] in service.playback }
+        service.trackEnds.shown = { [unowned service] in service.playback }
+        let player = NotchPlaybackSource(pid: 42, bundleIdentifier: "org.example.player", isMusicApp: true,
+                                         isPlaying: true, hasTrack: true)
+        let other = NotchPlaybackSource(pid: 202, bundleIdentifier: "test.music", isMusicApp: true,
+                                        isPlaying: false, hasTrack: true)
+        func reading(_ playback: NotchPlayback, sources: [NotchPlaybackSource] = [player, other]) -> Contract.Service.Reading {
+            Contract.Service.Reading(playback: playback, artwork: nil, tint: nil, sources: sources,
+                                     automatic: true, selectedPID: nil)
+        }
+        func paused(_ song: NotchPlayback) -> NotchPlayback {
+            NotchPlayback(track: song.track, isPlaying: false, elapsed: 0, duration: song.duration, rate: 0,
+                          sampledAt: song.sampledAt, canSeek: false, itemIdentifier: song.itemIdentifier)
+        }
+        let current = playback("current"), next = playback("next"), later = playback("later")
+        let standIn = paused(NotchPlayback(track: RadialNowPlayingSnapshot(title: "Elsewhere", artist: "Other", album: nil,
+                                                                           artworkData: nil, appBundleIdentifier: "test.music",
+                                                                           appPID: 202),
+                                           isPlaying: false, elapsed: 30, duration: 200, rate: 0,
+                                           sampledAt: Date(timeIntervalSinceReferenceDate: 0), canSeek: false))
+        service.start()
+        service.receive(reading(current))
+        service.receive(reading(standIn, sources: [other]))
+        suite.expect(service.playback == current && service.sources == [player, other] && service.gapWork != nil,
+                     "another player's paused song standing in between songs keeps the song that played")
+        let listed = NotchPlaybackSource(pid: 42, bundleIdentifier: "org.example.player", isMusicApp: false,
+                                         isPlaying: false, hasTrack: true)
+        service.receive(reading(standIn, sources: [listed, other]))
+        suite.expect(service.playback == current && service.gapWork != nil,
+                     "a player that lists its next song again while it loads keeps the gap going")
+        service.receive(reading(next))
+        suite.expect(service.playback == next && service.gapWork == nil && service.trackChanges.announcedOver == [current],
+                     "the next song replaces it at once, announced while the song before is still shown")
+        service.receive(reading(paused(later)))
+        suite.expect(service.playback == next && service.gapWork != nil,
+                     "the next song reported paused before it starts keeps the song that played")
+        suite.expect(service.trackEnds.announcedOver.isEmpty, "a gap that ends in a new song ends nothing")
+        Contract.DispatchQueue.main.drain()
+        suite.expect(service.playback == paused(later) && service.gapWork == nil,
+                     "a song that stays paused is shown after the grace period")
+        suite.expect(service.trackEnds.announcedOver == [next],
+                     "the end of the song is announced while it is still shown")
+        service.receive(reading(later))
+        service.receive(reading(paused(later)))
+        suite.expect(service.playback == paused(later) && service.gapWork == nil && service.trackEnds.announcedOver == [next],
+                     "pausing the song that plays is shown at once, and ends nothing")
+        service.receive(reading(later))
+        service.receive(reading(standIn, sources: [listed, other]))
+        suite.expect(service.playback == standIn && service.gapWork == nil && service.sources == [listed, other],
+                     "a pause that hands automatic playback to another player's paused song is shown at once")
+        suite.expect(service.trackEnds.announcedOver == [next, later],
+                     "the strip leaves such a pause as its own song")
     }
 
     /// The adapter flags bytes equal to its previous reading as unchanged,
@@ -352,15 +527,27 @@ enum NotchMusicHardeningTests {
         let paused = source(10, music: true, playing: false)
         let browser = source(20, music: false)
         let other = source(30, music: true)
-        func choose(_ sources: [NotchPlaybackSource], previous: Int32? = nil, system: Int32? = 20) -> NotchPlaybackSource? {
-            NotchPlaybackSource.preferred(in: sources, previousPID: previous, systemPID: system)
+        suite.expect(NotchPlaybackSource.isMusicApplication(bundleIdentifier: "com.apple.Music", parentBundleIdentifier: nil,
+                                                             category: nil)
+                     && NotchPlaybackSource.isMusicApplication(bundleIdentifier: "com.spotify.client.helper",
+                                                               parentBundleIdentifier: "com.spotify.client", category: nil)
+                     && NotchPlaybackSource.isMusicApplication(bundleIdentifier: "com.example.player",
+                                                               parentBundleIdentifier: nil, category: "public.app-category.music")
+                     && !NotchPlaybackSource.isMusicApplication(bundleIdentifier: "com.example.browser",
+                                                                parentBundleIdentifier: nil, category: "public.app-category.video"),
+                     "music apps and Spotify helpers stay eligible while video apps are excluded")
+        func choose(_ sources: [NotchPlaybackSource], previous: Int32? = nil, system: Int32? = 20,
+                    includeOtherPlayers: Bool = false) -> NotchPlaybackSource? {
+            NotchPlaybackSource.preferred(in: sources, previousPID: previous, systemPID: system,
+                                          includeOtherPlayers: includeOtherPlayers)
         }
         suite.expect(choose([browser, music]) == music, "a browser video cannot take controls from playing music")
         suite.expect(choose([music, browser]) == music, "source discovery order does not change music priority")
-        suite.expect(choose([browser, paused], previous: 10) == browser,
-               "a video playing takes the island from music paused in the background")
-        suite.expect(choose([browser, paused]) == browser,
-               "the same holds on a first read, with nothing remembered")
+        suite.expect(choose([browser, paused], previous: 10) == paused && choose([browser]) == nil,
+                     "music-only automatic playback ignores videos, even when they own the system session")
+        suite.expect(choose([browser, paused], previous: 10, includeOtherPlayers: true) == browser
+                     && choose([browser], includeOtherPlayers: true) == browser,
+                     "the opt-in restores automatic playback from other apps")
         let idleBrowser = source(20, music: false, playing: false)
         suite.expect(NotchPlaybackSource.preferred(in: [music, browser], previousPID: 10, systemPID: 10,
                                                    selection: browser.selection) == browser,
@@ -410,11 +597,12 @@ enum NotchMusicHardeningTests {
                "playing music still outranks a playing browser and a paused music app")
         // A music app open but stopped, a video playing in the browser: the
         // island used to go blank, since paused music outranked everything.
-        suite.expect(choose([paused, browser], previous: nil, system: 20) == browser,
-               "a stopped music app left open never blanks the island over a playing video")
-        suite.expect(choose([browser, source(10, music: true, track: false)]) == browser,
-               "an empty music app does not hide browser playback")
-        suite.expect(choose([browser], previous: 10) == browser, "closing the music app releases its priority")
+        suite.expect(choose([paused, browser], previous: nil, system: 20, includeOtherPlayers: true) == browser,
+               "with other players enabled, a stopped music app does not hide a playing video")
+        suite.expect(choose([browser, source(10, music: true, track: false)], includeOtherPlayers: true) == browser,
+               "with other players enabled, an empty music app does not hide browser playback")
+        suite.expect(choose([browser], previous: 10, includeOtherPlayers: true) == browser,
+                     "with other players enabled, closing the music app releases its priority")
         suite.expect(choose([source(10, music: true, track: false)], previous: 10) == nil,
                "clearing the track never preserves a stale music selection")
         suite.expect(choose([music, other, browser], previous: 30) == other,
@@ -424,7 +612,8 @@ enum NotchMusicHardeningTests {
         suite.expect(choose([music, other], system: 30) == other,
                "the system's choice breaks an initial tie between playing music apps")
         suite.expect(choose([browser], system: 99) == nil, "an unrelated remembered video never becomes a fallback")
-        suite.expect(choose([source(0, music: true), browser]) == browser, "invalid process identities are not controllable")
+        suite.expect(choose([source(0, music: true), browser], includeOtherPlayers: true) == browser,
+                     "invalid process identities are not controllable")
         suite.expect(choose([], previous: 10) == nil, "no surviving session leaves no command destination")
     }
 
@@ -523,6 +712,7 @@ enum NotchMusicHardeningTests {
                 let notch = Context.NotchService.shared
                 let parent = notch.presentationWindow!
                 notch.pinned = pinned
+                notch.acceptsSystemFeedback = false
                 service.update(playback: playback("same-song"), visible: true)
                 service.importLyrics()
                 guard let panel = service.importPanel else { suite.expect(false, "a visible lyrics surface can choose a file"); continue }
@@ -552,7 +742,7 @@ enum NotchMusicHardeningTests {
                 switch interruption {
                 case 0: service.hide()
                 case 1: service.playbackChanged(playback("next-song"))
-                case 2: Context.NotchService.shared.acceptsSystemFeedback = false
+                case 2: Context.NotchService.shared.acceptsUserInteraction = false
                 case 3: Context.NotchService.shared.selected = .downloads
                 case 4: Context.NotchService.shared.presentationWindow = Context.Window()
                 default: Context.Preferences.enabled = false

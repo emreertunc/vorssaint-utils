@@ -62,6 +62,11 @@ struct NotchAgentsSettingsControls: View {
                 }
             }
             Text(text.cardsHint).font(.caption).foregroundStyle(.secondary)
+            // The one card that makes Codex ask the account, said where it is chosen.
+            if codex, cardBinding(.resets).wrappedValue {
+                Text(text.resetsHelp).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             SettingsChoiceRow(symbol: NotchAgentCard.limits.symbol, title: text.limitsAs, selection: $limitDisplay) {
                 Text(text.remaining).tag(NotchAgentLimitDisplay.remaining.rawValue)
                 Text(text.used).tag(NotchAgentLimitDisplay.used.rawValue)
@@ -255,13 +260,13 @@ private struct NotchAgentStripSample: View {
     private static let camera: CGFloat = 64
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        NotchAgentReadoutTimeline(readout: readout) { date in
             let working = usage.snapshot.live.first?.provider ?? provider
             HStack(spacing: 0) {
                 NotchAgentGlyph(provider: working, size: 11)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Color.clear.frame(width: Self.camera)
-                Text(reading(at: context.date))
+                Text(reading(at: date))
                     .font(.system(size: 12, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(working.tint)

@@ -52,7 +52,7 @@ enum ShelfDropRoutingContract {
         func dockDidAccept() { dockCompletions += 1 }
     }
     class NotchState {
-        var acceptsSystemFeedback = true
+        var acceptsUserInteraction = true
         var captureControls: Int?
         var modules: [NotchModule] = [.files]
         var heldDrag = true
@@ -61,6 +61,7 @@ enum ShelfDropRoutingContract {
         var targetsMediaDrop = false
         var pinned = false
         var geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 32, cameraWidth: 180)
+        var expandedGeometry: NotchGeometry { geometry }
         var surfaceSize: CGSize { geometry.expandedSize(module: .files) }
         var opened: [NotchModule] = []
         func refreshPresentation() {}
@@ -151,7 +152,7 @@ enum ShelfDropRoutingTests {
             case 0: Context.AppFeature.shelf.isAvailable = false
             case 1: Context.UserDefaults.standard.enabled = false
             case 2: notch.modules = []
-            case 3: notch.acceptsSystemFeedback = false
+            case 3: notch.acceptsUserInteraction = false
             default: notch.captureControls = 1
             }
             suite.expect(!canvas.finishDrop(board) && shelf.promisedAccepts == 0 && notch.opened.isEmpty,
@@ -244,7 +245,7 @@ enum ShelfDropRoutingTests {
                 case 4: Context.NotchSupport.visibleModules = []
                 case 5: files.media.state = .running
                 case 6: files.isRunning = true
-                case 7: notch.acceptsSystemFeedback = false
+                case 7: notch.acceptsUserInteraction = false
                 default: notch.captureControls = 1
                 }
                 suite.expect(!notch.accept(board) && files.inputs.isEmpty && Context.ShelfService.shared.ordinaryAccepts == 0,

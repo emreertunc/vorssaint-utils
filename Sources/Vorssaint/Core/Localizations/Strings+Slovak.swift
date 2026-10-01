@@ -246,6 +246,7 @@ extension Strings {
         dockPreviewCurrentSpaceOnlyCaption: "Keď je vypnuté, zobrazí okná zo všetkých plôch. Výberom okna na inej ploche prejdete na ňu.",
         dockPreviewBackgroundOpacity: "Pozadie panela",
         dockPreviewBackgroundOpacityCaption: "Znížte ho, aby bolo viac vidieť to, čo je za panelom.",
+        dockPreviewBackgroundOpacityGlassCaption: "Efekt Liquid Glass je zapnutý, preto sa priehľadnosť panela nastavuje v časti Systémové nastavenia > Vzhľad.",
         dockPreviewOpenDelay: "Oneskorenie otvorenia",
         dockPreviewOpenDelayCaption: "Ako dlho musí kurzor ostať na ikone, kým sa jej panel otvorí.",
         dockPreviewQuitAppOnClose: "Tlačidlom × ukončiť aplikáciu",
@@ -301,6 +302,7 @@ extension Strings {
         autoQuitStep1: "Zatvorte posledné okno aplikácie (⌘W alebo červené tlačidlo).",
         autoQuitStep2: "Aplikácia sa sama ukončí. Dialógy „Uložiť zmeny?“ sa stále zobrazujú.",
         autoQuitPredictableNote: "Aplikácie, ktoré bežne bežia bez okna, sa nikdy neukončia.",
+        autoQuitOngoingWorkNote: "Niektoré aplikácie zatvoria posledné okno, ale pracujú ďalej, napríklad nahrávanie obrazovky po spustení záznamu. Ak nie sú v zozname výnimiek, ukončia sa tiež.",
         autoQuitExceptionsTitle: "Výnimky",
         autoQuitExceptionsCaption: "Aplikácie v tomto zozname ostanú otvorené aj bez okien.",
         autoQuitExceptionsEmpty: "Žiadne výnimky",
@@ -1076,7 +1078,12 @@ extension Strings {
         smoothScrollCoastLabel: "Dobeh",
         mouseAccelerationName: "Vypnúť akceleráciu myši",
         mouseAccelerationCaption: "Odstráni akceleráciu kurzora pre pripojené myši. Predchádzajúce nastavenie sa vráti po vypnutí tejto funkcie alebo po ukončení Vorssaintu.",
+        linearScrollName: "Lineárne rolovanie",
+        linearScrollCaption: "Každý krok kolieska myši posunie rovnakú vzdialenosť bez ohľadu na to, ako rýchlo sa točí. Trackpadu sa to netýka.",
+        linearScrollLinesLabel: "Riadky na krok",
         shelfClearOnClose: "Vymazať pri zatvorení",
-        shelfClearOnCloseCaption: "Vyprázdni policu len vtedy, keď kliknete na jej tlačidlo zatvorenia. Automatické skrytie a zbalenie položky zachovajú."
+        shelfClearOnCloseCaption: "Vyprázdni policu len vtedy, keď kliknete na jej tlačidlo zatvorenia. Automatické skrytie a zbalenie položky zachovajú.",
+        shelfShortcutFinderSelection: "Pridať výber z Findera skratkou",
+        shelfShortcutFinderSelectionCaption: "Keď je Finder v popredí, skratka otvorí policu už s vybranými súbormi. Ak nie je nič vybraté, otvorí sa ako zvyčajne."
     )
 }
