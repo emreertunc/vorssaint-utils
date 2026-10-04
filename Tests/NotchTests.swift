@@ -243,6 +243,87 @@ enum NotchTests {
                      "without a camera the capture title and buttons take the top row, as the open header does")
     }
 
+    /// The camera sits between the open header's title and its actions only
+    /// where the whole title fits on its side. A longer title takes the full
+    /// row below the camera, as a narrow island's header does.
+    private static func headerTitleContracts(_ suite: TestSuite) {
+        func drawnWidth(_ title: String, _ font: NSFont) -> CGFloat {
+            let host = NSHostingView(rootView: Text(title).font(Font(font as CTFont)).fixedSize())
+            host.layoutSubtreeIfNeeded()
+            return host.fittingSize.width
+        }
+        for language in AppLanguage.allCases {
+            suite.expect(NotchModule.allCases.map { $0.title(language) }.allSatisfy {
+                drawnWidth($0, NotchLayout.headerTitleFont) <= NotchLayout.headerTitleWidth($0, button: false)
+            }, "the measured section titles cover the \(language.rawValue) titles as drawn")
+            suite.expect([FeatureStrings.fanControl(language).title, FeatureStrings.notch(language).title].allSatisfy {
+                drawnWidth($0, NotchLayout.detailTitleFont)
+                    <= NotchLayout.headerTitleWidth($0, font: NotchLayout.detailTitleFont, button: false)
+            }, "the measured detail titles cover the \(language.rawValue) titles as drawn")
+        }
+        let screen = CGRect(x: 0, y: 0, width: 1710, height: 1112)
+        var geometries: [NotchGeometry] = []
+        for camera: CGFloat in [180, 185, 208, 210, 224, 240] {
+            for layout: NotchSize in [.compact, .spacious] {
+                geometries.append(NotchGeometry(screen: screen, safeAreaTop: 37.5, cameraWidth: camera, layout: layout))
+            }
+            for width in stride(from: NotchSize.widthRange.lowerBound, through: NotchSize.widthRange.upperBound, by: 10) {
+                geometries.append(NotchGeometry(screen: screen, safeAreaTop: 37.5, cameraWidth: camera,
+                                                layout: .custom, customWidth: width))
+            }
+        }
+        // Every language, with and without the sections button before the title.
+        let titleWidths = NotchModule.allCases.map { module in
+            AppLanguage.allCases.flatMap { language in
+                [false, true].map { NotchLayout.headerTitleWidth(module.title(language), button: $0) }
+            }
+        }
+        for geometry in geometries {
+            let side = (geometry.contentWidth - geometry.cameraWidth) / 2
+            let place = "beside a \(Int(geometry.cameraWidth))-point camera in a \(Int(geometry.expandedWidth))-point island"
+            for (module, widths) in zip(NotchModule.allCases, titleWidths) {
+                var beside = true, below = true, kept = true
+                for width in widths {
+                    var titled = geometry
+                    titled.headerTitleWidth = width
+                    if titled.headerCameraGap > 0 {
+                        beside = beside && width <= side && titled.headerTopInset == 0
+                    } else {
+                        below = below && titled.headerTopInset == titled.safeContentTop
+                            && titled.headerRowHeight == NotchLayout.headerHeight
+                    }
+                    if geometry.headerCameraGap > 0, width <= side {
+                        kept = kept && titled.headerCameraGap == geometry.headerCameraGap
+                            && titled.expandedSize(module: module) == geometry.expandedSize(module: module)
+                    }
+                }
+                suite.expect(beside, "every \(module.rawValue) title \(place) fits whole on its side")
+                suite.expect(below, "a \(module.rawValue) title too wide to sit \(place) takes the full row below it")
+                suite.expect(kept, "a \(module.rawValue) title that fits \(place) keeps the layout it had")
+            }
+        }
+        // The report: a 1710 by 1112 point display with a 208 by 37.5 point camera, in the compact preset.
+        let reported = NotchGeometry(screen: screen, safeAreaTop: 37.5, cameraWidth: 208)
+        func titled(_ module: NotchModule) -> NotchGeometry {
+            var result = reported
+            result.headerTitleWidth = NotchLayout.headerTitleWidth(module.title(.enUS), button: false)
+            return result
+        }
+        suite.expect(titled(.camera).headerCameraGap == 0 && titled(.camera).headerTopInset == reported.safeContentTop
+                     && titled(.controls).headerCameraGap == 208 && titled(.controls).headerTopInset == 0,
+                     "Camera mirror takes the row below a 208-point camera in the compact preset while Controls stays beside it")
+        for silhouette in NotchSilhouette.allCases {
+            let plain = NotchGeometry(screen: screen, safeAreaTop: 0, cameraWidth: 0, silhouette: silhouette)
+            var titled = plain
+            titled.headerTitleWidth = 1000
+            suite.expect(titled.headerCameraGap == 0 && titled.headerTopInset == plain.headerTopInset
+                         && titled.headerRowHeight == plain.headerRowHeight
+                         && titled.quickAccessCenterY == plain.quickAccessCenterY
+                         && titled.expandedSize(module: .camera) == plain.expandedSize(module: .camera),
+                         "a long title leaves the \(silhouette.rawValue) header without a camera where it was")
+        }
+    }
+
     private static func noticeLayoutContracts(_ suite: TestSuite) {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         func width(_ text: String) -> CGFloat {
@@ -262,16 +343,20 @@ enum NotchTests {
                     let geometry = NotchGeometry(screen: screen, safeAreaTop: physical ? height : 0,
                                                  cameraWidth: physical ? 180 : 0, menuBarHeight: height)
                     for notice in notices {
-                        let wing = geometry.noticeWingWidth(preferred: notice.preferredWingWidth)
-                        let content = wing - 16 - notice.cameraGap
-                        suite.expect(width(notice.level == nil ? notice.title : notice.detail) + 18 + 8 <= content,
+                        let wings = notice.wings(in: geometry)
+                        func content(_ wing: CGFloat) -> CGFloat { wing - notice.inset(wing: wing) - notice.cameraGap }
+                        suite.expect(width(notice.level == nil ? notice.title : notice.detail) + 18 + 8 <= content(wings.leading),
                                "power labels and connection status fit beside their icon in \(language)")
-                        suite.expect(notice.level != nil || width(notice.detail) <= content,
+                        suite.expect(notice.level != nil || width(notice.detail) <= content(wings.trailing),
                                "a device name and a charge percentage fit the opposite wing in \(language)")
-                        let size = geometry.noticeSize(wingWidth: notice.preferredWingWidth)
-                        suite.expect(size.width == wing * 2 + geometry.cameraWidth && size.height == height
-                               && screen.contains(geometry.frame(for: size)),
-                               "content-sized notices preserve camera clearance, menu height and display bounds")
+                        let size = geometry.noticeSize(wings: wings)
+                        var shifted = geometry
+                        shifted.surfaceShift = geometry.noticeShift(wings)
+                        let frame = shifted.frame(for: size)
+                        suite.expect(size.width == wings.leading + wings.trailing + geometry.cameraWidth && size.height == height
+                               && screen.contains(frame)
+                               && abs(frame.minX + wings.leading - (screen.midX - geometry.cameraWidth / 2)) < 0.001,
+                               "content-sized notices keep the camera's gap over it, the menu height and the display bounds")
                     }
                 }
             }
@@ -281,9 +366,12 @@ enum NotchTests {
                 let notice = NotchNotice(event: event, title: "Level", detail: "\(percent)%",
                                          symbol: "speaker.wave.2", level: Double(percent) / 100)
                 let wing = notice.preferredWingWidth
-                suite.expect(wing == 80, "level changes keep a stable compact width without an empty outer margin")
-                suite.expect(width(notice.detail) + 18 + 8 + 16 <= wing && wing - 16 >= 64,
-                             "every percentage fits beside its icon while the opposite meter remains readable")
+                let content = width(notice.detail) + 18 + 8
+                suite.expect(content + NotchNotice.levelInset <= wing && wing < content + NotchNotice.levelInset + 1
+                             && notice.inset(wing: wing) == NotchNotice.levelInset,
+                             "a level's wings fit its mark and reading, with no empty black at the end")
+                suite.expect(wing - NotchNotice.levelInset >= 40,
+                             "the opposite meter remains readable beside the shortest reading")
             }
         }
         let long = NotchNotice(event: .accessory, title: "Connected",
@@ -328,14 +416,25 @@ enum NotchTests {
                       banner(app: "Calendar", "会议提醒", subtitle: "明天", "项目评审 🚀")]
         for notice in fitted {
             guard let content = notice.notification else { continue }
-            let room = notice.preferredWingWidth - layout.inset
-            suite.expect(layout.iconSize + layout.spacing + width(content.compactTitle, layout.titleFont) <= room
-                         && width(content.compactDetail, layout.messageFont) <= room
-                         && notice.preferredWingWidth < layout.wingRange.upperBound,
+            let wings = notice.preferredWings
+            suite.expect(layout.iconSize + layout.spacing + width(content.compactTitle, layout.titleFont) <= wings.leading - layout.inset
+                         && width(content.compactDetail, layout.messageFont) <= wings.trailing - layout.inset
+                         && wings.widest < layout.wingRange.upperBound,
                          "a short message and its title fit whole in a banner narrower than the widest one")
         }
-        suite.expect(short.preferredWingWidth == layout.wingRange.lowerBound,
+        // Issue: a one-word reply beside a long sender left a band of empty
+        // black after the word; each side now takes only what it shows.
+        let reply = banner(app: "WhatsApp", "+55 11 98945-8910", "Oi")
+        suite.expect(reply.preferredWings.trailing == max(layout.wingRange.lowerBound,
+                                                          width("Oi", layout.messageFont).rounded(.up) + layout.inset + layout.air)
+                     && reply.preferredWings.trailing < reply.preferredWings.leading
+                     && short.preferredWings.trailing < short.preferredWings.leading,
                      "a one-word message leaves no band of empty black beside it")
+        let wrapping = banner("Ana", "Chego em 10 minutos, me espera na entrada")
+        let wrapped = wrapping.preferredWings(wrapsMessage: true).trailing
+        suite.expect(wrapping.preferredWings.trailing == layout.wingRange.upperBound
+                     && wrapped < layout.wingRange.upperBound && wrapped > layout.wingRange.upperBound / 2,
+                     "a message wrapped onto two lines takes the width of its lines, not the whole side")
         // The wing is measured with AppKit; SwiftUI draws the text. The air
         // has to cover any difference, in every script a banner can carry.
         for sample in ["done", "Your code is 482913", "会议提醒 项目评审", "🚀🎉 launch", "مرحبا بالعالم", "שלום עולם"] {
@@ -351,16 +450,19 @@ enum NotchTests {
         suite.expect(long.preferredWingWidth == layout.wingRange.upperBound,
                      "a long message keeps the widest banner and wraps or truncates within it")
         var replacement = short
-        replacement.minimumWingWidth = long.preferredWingWidth
-        suite.expect(replacement.preferredWingWidth == long.preferredWingWidth,
-                     "a banner replacing a wider one keeps its width")
+        replacement.minimumWings = long.preferredWings
+        suite.expect(replacement.preferredWings.trailing == long.preferredWings.trailing
+                     && replacement.preferredWings.leading >= long.preferredWings.leading,
+                     "a banner replacing a wider one keeps each of its sides")
         for physical in [false, true] {
             let geometry = NotchGeometry(screen: screen, safeAreaTop: physical ? 32 : 0,
                                          cameraWidth: physical ? 180 : 0, menuBarHeight: 32)
-            let compact = geometry.noticeSize(wingWidth: short.preferredWingWidth)
-            let widest = geometry.noticeSize(wingWidth: long.preferredWingWidth)
-            suite.expect(compact.width == geometry.cameraWidth + short.preferredWingWidth * 2
-                         && compact.width < widest.width && screen.contains(geometry.frame(for: widest)),
+            let compact = geometry.noticeSize(wings: short.preferredWings)
+            let widest = geometry.noticeSize(wings: long.preferredWings)
+            var shifted = geometry
+            shifted.surfaceShift = geometry.noticeShift(long.preferredWings)
+            suite.expect(compact.width == geometry.cameraWidth + short.preferredWings.leading + short.preferredWings.trailing
+                         && compact.width < widest.width && screen.contains(shifted.frame(for: widest)),
                          "a short banner narrows around the camera, and the widest stays on the display")
         }
     }
@@ -826,12 +928,28 @@ enum NotchTests {
         }
         suite.expect(stripIsBlack(islandHeight: previewStrip + 62) && stripIsBlack(islandHeight: 400),
                "the strip stays black at every island height, tall or at the preview's")
+        // Liquid Glass is clear, not blurred: the page keeps black over it and
+        // only the margin below the page opens into the lip.
+        for height: CGFloat in [96, 180, 210, 284, 400, 640] {
+            let stops = NotchGlassLip.stops(height: height, openness: 1, increasedContrast: false)
+            let pageEnd = Double((height - NotchLayout.bottomInset) / height)
+            suite.expect(stops.filter { $0.location <= pageEnd + 1e-9 }.allSatisfy { $0.opacity == 1 }
+                         && abs(stops.last!.opacity - (1 - NotchGlassLip.transparency)) < 1e-9
+                         && zip(stops, stops.dropFirst()).allSatisfy { $1.opacity <= $0.opacity + 1e-12 },
+                         "a \(Int(height))-point glass island keeps its page over black and opens only the margin below it")
+        }
+        suite.expect(NotchGlassLip.stops(height: 284, openness: 0, increasedContrast: false).allSatisfy { $0.opacity == 1 }
+                     && abs(NotchGlassLip.opacity(atDepth: 284, height: 284, openness: 1, increasedContrast: true)
+                            - (1 - NotchGlassLip.increasedContrastTransparency)) < 1e-9
+                     && NotchGlassLip.increasedContrastTransparency < NotchGlassLip.transparency,
+                     "a closing glass island is black throughout, and Increase Contrast keeps its lip darker")
 
         NotchMissionControlPollingTests.run(suite)
         activitySelectionContracts(suite)
         railContracts(suite)
         presentationSpacingContracts(suite)
         captureControlsLayoutContracts(suite)
+        headerTitleContracts(suite)
         noticeLayoutContracts(suite)
         simulatedMenuBoundsContracts(suite)
         simulatedDisplayContracts(suite)
@@ -867,6 +985,8 @@ enum NotchTests {
         NotchSectionPagingTests.run(suite)
         NotchKeyboardLightTests.run(suite)
         NotchActivityTests.run(suite)
+        NotchWatchTests.run(suite)
+        NotchMascotTests.run(suite)
         NotchMusicExtrasTests.run(suite)
         NotchLockScreenTests.run(suite)
         NowPlayingOpenContract.run(suite)
@@ -1190,6 +1310,11 @@ enum NotchTests {
                && NotchSupport.adjacentModule(to: .camera, modules: [.files], backwards: true) == .files
                && NotchSupport.adjacentModule(to: nil, modules: [], backwards: false) == nil,
                "reverse cycling, removed selections and an empty gallery have safe destinations")
+        suite.expect(NotchSupport.clipboardPasteTarget(highlighted: nil, in: [1, 2, 3]) == 1
+                && NotchSupport.clipboardPasteTarget(highlighted: 2, in: [1, 2, 3]) == 2
+                && NotchSupport.clipboardPasteTarget(highlighted: 9, in: [1, 2, 3]) == 1
+                && NotchSupport.clipboardPasteTarget(highlighted: 2, in: [Int]()) == nil,
+               "Return pastes the highlighted or first visible clipboard entry, and nothing from an empty list")
         suite.expect(NotchSupport.steppedItem(from: nil, in: [1, 2, 3], backwards: false) == 1
                && NotchSupport.steppedItem(from: nil, in: [1, 2, 3], backwards: true) == 1
                && NotchSupport.steppedItem(from: 1, in: [1, 2, 3], backwards: false) == 2
@@ -1283,7 +1408,7 @@ enum NotchTests {
         suite.expect(!NotchSupport.routesClipboardWindow(in: defaults), "hidden clipboard keeps the ordinary history available")
         suite.expect(!NotchSupport.routes(.clipboard, in: defaults), "hidden module cannot leak an activity")
         defaults.set("system,music,music,unknown", forKey: DefaultsKey.notchModuleOrder)
-        suite.expect(NotchSupport.modules(in: defaults) == [.system, .music, .controls, .mixer, .captures, .files, .tools, .calendar, .notifications, .timer, .camera, .downloads, .scratchpad, .agents],
+        suite.expect(NotchSupport.modules(in: defaults) == [.system, .music, .controls, .mixer, .captures, .files, .tools, .calendar, .notifications, .timer, .camera, .downloads, .scratchpad, .agents, .watch],
                "module order ignores unknown ids and duplicates, preserving newly added modules")
         suite.expect(NotchSupport.routesShelf(in: defaults) && NotchSupport.revealsShelfDrag(in: defaults),
                "the enabled notch replaces the file destination and reveals active drags")
@@ -1486,13 +1611,14 @@ enum NotchTests {
         }
         suite.expect(compact.sectionRows(count: allModules.count) == 3 && spacious.sectionRows(count: allModules.count) == 3
                && compact.contentSize(for: compact.sectionPickerSize(count: allModules.count)).height <= compact.pageBudget
+               && tall.sectionRows(count: allModules.count) > spacious.sectionRows(count: allModules.count)
                && tall.sectionRows(count: allModules.count)
-                   == NotchSectionPaging.rows(count: allModules.count, columns: tall.sectionColumns),
-               "the gallery is a page: presets show three whole rows and a tall island shows every row")
+                   <= NotchSectionPaging.rows(count: allModules.count, columns: tall.sectionColumns),
+               "the gallery is a page: presets show three whole rows and a tall island shows more")
         suite.expect(compact.sectionColumns == 4 && spacious.sectionColumns == 5
                && compact.sectionColumns * compact.sectionRows(count: allModules.count) < allModules.count
-               && spacious.sectionColumns * spacious.sectionRows(count: allModules.count) >= allModules.count,
-               "a compact island steps one row to reach its last sections and a spacious one shows them all")
+               && spacious.sectionColumns * (spacious.sectionRows(count: allModules.count) + 1) >= allModules.count,
+               "a compact island steps rows to reach its last sections and a spacious one steps at most one")
         suite.expect(NotchLayout.sectionTileHeight * 2 + NotchLayout.sectionSpacing <= NotchLayout.compactContentHeight
                && NotchLayout.sectionTileHeight * 3 + NotchLayout.sectionSpacing * 2 <= NotchLayout.pageContentHeight,
                "two rows fit the compact strip and three rows fit the gallery's page exactly or better")
@@ -1748,6 +1874,47 @@ enum NotchTests {
         suite.expect(NotchMotion.duration(from: roomy.notice, to: idle)
                < NotchMotion.duration(from: idle, to: roomy.notice),
                "horizontal dismissal remains quicker than opening")
+        // A level passing 99% or 9% keeps its notice and only fits the new width.
+        for (from, to) in [(CGSize(width: 315, height: 33), CGSize(width: 329, height: 33)),
+                           (CGSize(width: 315, height: 33), CGSize(width: 299, height: 33))] {
+            let steady = NotchMotion.frames(from: from, to: to, steady: true)
+            let widths = steady.sizes.map(\.width)
+            let moving = zip(widths, widths.dropFirst()).allSatisfy { to.width > from.width ? $1 >= $0 : $1 <= $0 }
+            suite.expect(moving && widths.allSatisfy { min(from.width, to.width) <= $0 && $0 <= max(from.width, to.width) }
+                         && steady.sizes.last == to,
+                         "a notice fitting a new reading eases to its width without swinging past it")
+            let usual = NotchMotion.size(at: 0.1, from: from, to: to)
+            let eased = NotchMotion.size(at: 0.1, from: from, to: to, steady: true)
+            suite.expect(abs(eased.width - from.width) < abs(usual.width - from.width)
+                         && steady.duration > NotchMotion.frames(from: from, to: to).duration,
+                         "a notice fitting a new reading moves more gently than the island's springs")
+        }
+        // Equal total widths still move when the longer notice wing changes sides.
+        let sameSize = CGSize(width: 380, height: 32)
+        for start: CGFloat in [-120, 120] {
+            let motion = NotchMotion.frames(from: sameSize, to: sameSize, offset: start)
+            let offsets = motion.keyTimes.map {
+                NotchMotion.offset(at: $0 * motion.duration, from: sameSize, to: sameSize, start: start)
+            }
+            suite.expect(motion.sizes.allSatisfy { $0 == sameSize }
+                         && offsets.first == start && abs(offsets.last ?? .infinity) <= NotchMotion.settledDistance
+                         && zip(offsets, offsets.dropFirst()).allSatisfy { abs($1) <= abs($0) }
+                         && abs(NotchMotion.offset(at: 0.09, from: sameSize, to: sameSize, start: start)) < abs(start)
+                         && motion.duration > 0.3,
+                         "an equal-width notice moves its centre smoothly in either direction while its size stays put")
+        }
+        suite.expect(NotchMotion.offset(at: 0, from: sameSize, to: sameSize, start: 0) == 0,
+                     "an unchanged notice with no shift stays in place")
+        for (from, to) in [(CGSize(width: 315, height: 32), CGSize(width: 329, height: 32)),
+                           (CGSize(width: 329, height: 32), CGSize(width: 315, height: 32))] {
+            for steady in [false, true] {
+                let time: TimeInterval = 0.09
+                let size = NotchMotion.size(at: time, from: from, to: to, steady: steady)
+                let expected = 60 * (1 - (size.width - from.width) / (to.width - from.width))
+                suite.expect(abs(NotchMotion.offset(at: time, from: from, to: to, start: 60, steady: steady) - expected) < 0.001,
+                             "a notice changing width still moves its centre with that same width spring")
+            }
+        }
         for (from, to) in [(roomy.collapsed, roomy.expanded), (idle, roomy.notice), (roomy.expanded, roomy.collapsed),
                            (roomy.notice, idle), (CGSize(width: roomy.collapsed.width, height: 0), roomy.peek),
                            (roomy.expanded, CGSize(width: roomy.collapsed.width, height: 0))] {

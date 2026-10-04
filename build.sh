@@ -267,6 +267,11 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Notch/NotchLyricsSupport.swift
         Sources/Vorssaint/Services/Notch/NotchQueueSupport.swift
         Sources/Vorssaint/Core/NotchFilesStrings.swift
+        Sources/Vorssaint/Core/NotchWatchStrings.swift
+        Sources/Vorssaint/Services/Notch/NotchWatchSupport.swift
+        Sources/Vorssaint/Core/NotchMascotStrings.swift
+        Sources/Vorssaint/Services/Notch/NotchMascotSupport.swift
+        Sources/Vorssaint/Services/CommandBar/CommandBarDropletMotion.swift
         Sources/Vorssaint/Services/Notch/NotchFileToolsSupport.swift
         Sources/Vorssaint/Services/Notch/NotchDownloadSupport.swift
         Sources/Vorssaint/Services/Notch/NotchDownloadProgressObserver.swift
@@ -282,8 +287,10 @@ if (( TEST )); then
         Sources/Vorssaint/Services/AgentUsage/AgentLogParser.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageSummary.swift
         Sources/Vorssaint/Services/AgentUsage/AgentUsageStore.swift
+        Sources/Vorssaint/Services/AgentUsage/AgentUsageArchive.swift
         Sources/Vorssaint/Services/AgentUsage/AgentClaudeAppUsage.swift
         Sources/Vorssaint/Services/AgentUsage/AgentCodexServer.swift
+        Sources/Vorssaint/Services/AgentUsage/AgentOpenCodeReader.swift
         Sources/Vorssaint/Services/Notch/NotchGestureSupport.swift
         Sources/Vorssaint/Services/Notch/NotchSectionPaging.swift
         Sources/Vorssaint/Services/Notch/NotchSliderEditing.swift
@@ -296,6 +303,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Notch/NotchVolumeKeyGate.swift
         Sources/Vorssaint/Services/Notch/NotchMusicSupport.swift
         Sources/Vorssaint/UI/Notch/NotchEqualizerBars.swift
+        Sources/Vorssaint/UI/Notch/NotchScrollEdgeFade.swift
         Sources/Vorssaint/UI/Notch/NotchAgentAnimationView.swift
         Sources/Vorssaint/UI/WindowVisibilityReader.swift
         Sources/Vorssaint/Services/Notch/NotchMusicAutomationSupport.swift
@@ -384,6 +392,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/URLCleaning.swift
         Sources/Vorssaint/Services/GeneralPasteboardAccess.swift
         Sources/Vorssaint/Services/Clipboard/ClipboardHistoryWrite.swift
+        Sources/Vorssaint/Services/Audio/AirPlayRouteManager.swift
         Sources/Vorssaint/Services/Audio/MixerRoutingSupport.swift
         Sources/Vorssaint/Services/Audio/MusicLaunchSupport.swift
         Sources/Vorssaint/Services/Bluetooth/BluetoothSleepSupport.swift
